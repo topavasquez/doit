@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone                  String?                @unique
+  email                  String?                @unique
+  username               String                 @unique
+  display_name           String?
+  avatar_url             String?
+  level                  Int                    @default(1)
+  xp                     Int                    @default(0)
+  timezone               String                 @default("UTC")
+  created_at             DateTime               @default(now()) @db.Timestamptz(6)
+  deleted_at             DateTime?              @db.Timestamptz(6)
+  challenge_participants ChallengeParticipant[]
+  challenges_created     Challenge[]
+  checkins               Checkin[]
+  group_memberships      GroupMember[]
+  groups_created         Group[]
+  leaderboard_snapshots  LeaderboardSnapshot[]
+  notifications          Notification[]
+
+  @@map("users")
+}
+
+model Group {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  avatar_url  String?
+  created_by  String        @db.Uuid
+  invite_code String        @unique
+  created_at  DateTime      @default(now()) @db.Timestamptz(6)
+  challenges  Challenge[]
+  members     GroupMember[]
+  creator     User          @relation(fields: [created_by], references: [id])
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id  String   @db.Uuid
+  user_id   String   @db.Uuid
+  role      String   @default("member")
+  joined_at DateTime @default(now()) @db.Timestamptz(6)
+  group     Group    @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([group_id, user_id])
+  @@index([user_id])
+  @@index([group_id])
+  @@map("group_members")
+}
+
+model Challenge {
+  id                 String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id           String                 @db.Uuid
+  created_by         String                 @db.Uuid
+  title              String
+  description        String?
+  habit_category     String
+  frequency          String
+  duration_days      Int
+  start_date         DateTime?              @db.Date
+  end_date           DateTime?              @db.Date
+  reward_description String?
+  status             String                 @default("pending")
+  ghost_mode         Boolean                @default(false)
+  created_at         DateTime               @default(now()) @db.Timestamptz(6)
+  participants       ChallengeParticipant[]
+  creator            User                   @relation(fields: [created_by], references: [id])
+  group              Group                  @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  checkins           Checkin[]
+  snapshots          LeaderboardSnapshot[]
+
+  @@index([group_id, status])
+  @@map("challenges")
+}
+
+model ChallengeParticipant {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  challenge_id   String    @db.Uuid
+  user_id        String    @db.Uuid
+  streak_current Int       @default(0)
+  streak_longest Int       @default(0)
+  total_checkins Int       @default(0)
+  rank           Int?
+  joined_at      DateTime  @default(now()) @db.Timestamptz(6)
+  challenge      Challenge @relation(fields: [challenge_id], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([challenge_id, user_id])
+  @@map("challenge_participants")
+}
+
+model Checkin {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  challenge_id  String    @db.Uuid
+  user_id       String    @db.Uuid
+  checked_in_at DateTime  @default(now()) @db.Timestamptz(6)
+  photo_url     String?
+  lat           Decimal?  @db.Decimal(9, 6)
+  lng           Decimal?  @db.Decimal(9, 6)
+  notes         String?
+  verified      Boolean   @default(false)
+  reactions     Json      @default("[]")
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  challenge     Challenge @relation(fields: [challenge_id], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([challenge_id, user_id, checked_in_at(sort: Desc)])
+  @@map("checkins")
+}
+
+model LeaderboardSnapshot {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  challenge_id String    @db.Uuid
+  user_id      String    @db.Uuid
+  rank         Int
+  score        Decimal   @db.Decimal(5, 2)
+  snapshot_at  DateTime  @default(now()) @db.Timestamptz(6)
+  challenge    Challenge @relation(fields: [challenge_id], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("leaderboard_snapshots")
+}
+
+model Notification {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  type       String
+  payload    Json     @default("{}")
+  read       Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, read, created_at(sort: Desc)])
+  @@map("notifications")
+}

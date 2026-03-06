@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(claude mcp:*)",
+      "Bash(node:*)",
+      "Bash(env:*)",
+      "Bash(npx prisma:*)",
+      "mcp__supabase__list_projects",
+      "mcp__supabase__execute_sql"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}
