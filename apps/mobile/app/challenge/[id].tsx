@@ -12,7 +12,7 @@ import type { Challenge, ChallengeParticipant, Checkin } from '@doit/shared'
 type Tab = 'leaderboard' | 'activity'
 
 const PODIUM_COLORS = ['#f0a500', '#9CA3AF', '#CD7C2F']
-const PODIUM_LABELS = ['1st', '2nd', '3rd']
+const PODIUM_LABELS = ['1°', '2°', '3°']
 
 type LbEntry = {
   rank: number; user_id: string; username: string; display_name?: string | null
@@ -79,7 +79,7 @@ export default function ChallengeScreen() {
   if (isLoading || !challenge) {
     return (
       <View style={styles.loading}>
-        <Text style={styles.loadingText}>Loading challenge...</Text>
+        <Text style={styles.loadingText}>Cargando reto...</Text>
       </View>
     )
   }
@@ -123,19 +123,19 @@ export default function ChallengeScreen() {
 
           {challenge.reward_description && (
             <View style={styles.rewardBox}>
-              <Text style={styles.rewardLabel}>REWARD</Text>
+              <Text style={styles.rewardLabel}>RECOMPENSA</Text>
               <Text style={styles.rewardText}>{challenge.reward_description}</Text>
             </View>
           )}
 
           <View style={styles.metaRow}>
-            <Text style={styles.metaItem}>{challenge.frequency === 'daily' ? 'Daily' : 'Weekly'}</Text>
+            <Text style={styles.metaItem}>{challenge.frequency === 'daily' ? 'Diario' : 'Semanal'}</Text>
             <Text style={styles.metaDot}>·</Text>
             <Text style={styles.metaItem}>{challenge.duration_days} days</Text>
             {challenge.ghost_mode && (
               <>
                 <Text style={styles.metaDot}>·</Text>
-                <Text style={styles.metaItem}>Ghost Mode</Text>
+                <Text style={styles.metaItem}>Modo Fantasma</Text>
               </>
             )}
           </View>
@@ -178,13 +178,13 @@ export default function ChallengeScreen() {
             style={[styles.tab, activeTab === 'leaderboard' && styles.tabActive]}
             onPress={() => setActiveTab('leaderboard')}
           >
-            <Text style={[styles.tabText, activeTab === 'leaderboard' && styles.tabTextActive]}>Leaderboard</Text>
+            <Text style={[styles.tabText, activeTab === 'leaderboard' && styles.tabTextActive]}>Clasificación</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, activeTab === 'activity' && styles.tabActive]}
             onPress={() => setActiveTab('activity')}
           >
-            <Text style={[styles.tabText, activeTab === 'activity' && styles.tabTextActive]}>Activity</Text>
+            <Text style={[styles.tabText, activeTab === 'activity' && styles.tabTextActive]}>Actividad</Text>
           </TouchableOpacity>
         </View>
 
@@ -193,7 +193,7 @@ export default function ChallengeScreen() {
           <View>
             {isGhost && (
               <View style={styles.ghostBanner}>
-                <Text style={styles.ghostText}>Ghost Mode — ranks hidden until the challenge ends</Text>
+                <Text style={styles.ghostText}>Modo Fantasma — rangos ocultos hasta que el reto termine</Text>
               </View>
             )}
 
@@ -226,7 +226,7 @@ export default function ChallengeScreen() {
             ))}
 
             {leaderboard.length === 0 && (
-              <Text style={styles.emptyText}>No participants yet</Text>
+              <Text style={styles.emptyText}>Sin participantes aún</Text>
             )}
           </View>
         )}
@@ -235,7 +235,7 @@ export default function ChallengeScreen() {
         {activeTab === 'activity' && (
           <View>
             {checkins.length === 0 ? (
-              <Text style={styles.emptyText}>No check-ins yet. Be the first!</Text>
+              <Text style={styles.emptyText}>Sin check-ins aún. ¡Sé el primero!</Text>
             ) : (
               checkins.map((c) => (
                 <View key={c.id} style={styles.activityItem}>
@@ -247,7 +247,7 @@ export default function ChallengeScreen() {
                   <View style={styles.activityInfo}>
                     <Text style={styles.activityText}>
                       <Text style={styles.activityUsername}>{c.user?.username}</Text>
-                      {' checked in'}
+                      {' hizo check-in'}
                       {c.notes ? ` — "${c.notes}"` : ''}
                     </Text>
                     {c.photo_url && (

@@ -8,12 +8,14 @@ interface AuthState {
   user: User | null
   isLoading: boolean
   isOnboarded: boolean
+  hasSeenIntro: boolean | null  // null = not yet loaded from storage
 
   setSession: (session: Session | null) => void
   setSupabaseUser: (user: SupabaseUser | null) => void
   setUser: (user: User | null) => void
   setLoading: (loading: boolean) => void
   setOnboarded: (onboarded: boolean) => void
+  setHasSeenIntro: (seen: boolean) => void
   reset: () => void
 }
 
@@ -23,11 +25,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: true,
   isOnboarded: false,
+  hasSeenIntro: null,
 
   setSession: (session) => set({ session }),
   setSupabaseUser: (supabaseUser) => set({ supabaseUser }),
   setUser: (user) => set({ user }),
   setLoading: (isLoading) => set({ isLoading }),
   setOnboarded: (isOnboarded) => set({ isOnboarded }),
+  setHasSeenIntro: (hasSeenIntro) => set({ hasSeenIntro }),
   reset: () => set({ session: null, supabaseUser: null, user: null, isOnboarded: false }),
 }))

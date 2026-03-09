@@ -5,6 +5,8 @@ import { authApi } from '../lib/api'
 import { useAuthStore } from '../store/auth'
 import type { User } from '@doit/shared'
 
+export const INTRO_STORAGE_KEY = 'doit:hasSeenIntro'
+
 export function useAuth() {
   return useAuthStore()
 }
@@ -15,35 +17,38 @@ export function useAuthGuard() {
   const segments = useSegments()
 
   useEffect(() => {
-    // Get initial session
+    // Load session on startup
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setSupabaseUser(session?.user ?? null)
 
       if (session?.user) {
         authApi.me()
-          .then((res) => {
-            setUser(res.user as User)
-          })
-          .catch(() => {
-            // User exists in Supabase but not in our DB yet — go to onboarding
-            setUser(null)
-          })
+          .then((res) => setUser(res.user as User))
+          .catch(() => setUser(null))
           .finally(() => setLoading(false))
       } else {
         setLoading(false)
       }
     })
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Listen for subsequent auth events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'INITIAL_SESSION') return
+
       setSession(session)
       setSupabaseUser(session?.user ?? null)
 
       if (!session) {
         setUser(null)
         setLoading(false)
+        return
       }
+
+      authApi.me()
+        .then((res) => setUser(res.user as User))
+        .catch(() => setUser(null))
+        .finally(() => setLoading(false))
     })
 
     return () => subscription.unsubscribe()
@@ -53,16 +58,22 @@ export function useAuthGuard() {
     if (isLoading) return
 
     const inAuthGroup = segments[0] === '(auth)'
+    const inOnboarding = segments[1] === 'onboarding'
+    const inIntro = segments[0] === 'intro'
+    const inIndex = segments.length === 0
     const isAnonymous = session?.user?.is_anonymous === true
 
-    if (!session && !inAuthGroup) {
-      router.replace('/(auth)/sign-in')
-    } else if (session && isAnonymous && inAuthGroup) {
-      router.replace('/(tabs)')
-    } else if (session && !user && !isAnonymous && !inAuthGroup) {
-      router.replace('/(auth)/onboarding')
-    } else if (session && user && inAuthGroup) {
-      router.replace('/(tabs)')
+    // index.tsx and intro.tsx manage their own routing — don't interfere
+    if (inIndex || inIntro) return
+
+    if (!session) {
+      if (!inAuthGroup) router.replace('/(auth)/sign-in')
+    } else if (isAnonymous) {
+      if (inAuthGroup) router.replace('/(tabs)')
+    } else if (!user) {
+      if (!inOnboarding) router.replace('/(auth)/onboarding')
+    } else {
+      if (inAuthGroup) router.replace('/(tabs)')
     }
   }, [session, user, isLoading, segments])
 }

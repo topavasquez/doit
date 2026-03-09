@@ -4,56 +4,85 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native'
 import { makeRedirectUri } from 'expo-linking'
+import { useLocalSearchParams } from 'expo-router'
+import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { supabase } from '../../lib/supabase'
 import { Colors } from '../../constants/colors'
 
-type Step = 'method' | 'email-entry' | 'otp-verify'
+type Step = 'method' | 'register' | 'login' | 'forgot' | 'check-email'
 
 export default function SignInScreen() {
-  const [step, setStep] = useState<Step>('method')
+  const { register } = useLocalSearchParams<{ register?: string }>()
+  const [step, setStep] = useState<Step>(register === 'true' ? 'register' : 'method')
   const [email, setEmail] = useState('')
-  const [otp, setOtp] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   function clearError() { setErrorMsg(null) }
 
-  async function handleSendOTP() {
-    if (!email.trim()) return
+  function goBack() {
+    clearError()
+    setPassword('')
+    setConfirmPassword('')
+    setShowPassword(false)
+    setStep('method')
+  }
+
+  async function handleRegister() {
+    if (!email.trim() || !password) return
+    if (password.length < 6) { setErrorMsg('La contraseña debe tener al menos 6 caracteres'); return }
+    if (password !== confirmPassword) { setErrorMsg('Las contraseñas no coinciden'); return }
     clearError()
     setLoading(true)
     try {
-      const { error } = await supabase.auth.signInWithOtp({
+      const { data, error } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
-        options: { shouldCreateUser: true },
+        password,
       })
       if (error) throw error
-      setStep('otp-verify')
+      if (!data.session) {
+        // Email confirmation required
+        setStep('check-email')
+      }
+      // If session exists, onAuthStateChange in useAuthGuard handles routing
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to send code'
-      console.error('[Auth] Send OTP error:', msg)
-      setErrorMsg(msg)
+      setErrorMsg(err instanceof Error ? err.message : 'Error al crear la cuenta')
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleVerifyOTP() {
-    if (!otp.trim()) return
+  async function handleLogin() {
+    if (!email.trim() || !password) return
     clearError()
     setLoading(true)
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { error } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
-        token: otp,
-        type: 'email',
+        password,
       })
       if (error) throw error
-      // Auth guard in _layout.tsx will handle routing
+      // Auth guard handles routing
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Invalid code'
-      console.error('[Auth] Verify OTP error:', msg)
-      setErrorMsg(msg)
+      setErrorMsg(err instanceof Error ? err.message : 'Correo o contraseña incorrectos')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleForgotPassword() {
+    if (!email.trim()) { setErrorMsg('Ingresa tu correo primero'); return }
+    clearError()
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase())
+      if (error) throw error
+      setStep('check-email')
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Error al enviar el correo')
     } finally {
       setLoading(false)
     }
@@ -70,9 +99,7 @@ export default function SignInScreen() {
       })
       if (error) throw error
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Google sign-in failed'
-      console.error('[Auth] Google sign-in error:', msg)
-      setErrorMsg(msg)
+      setErrorMsg(err instanceof Error ? err.message : 'Error al iniciar sesión con Google')
     } finally {
       setLoading(false)
     }
@@ -85,9 +112,7 @@ export default function SignInScreen() {
       const { error } = await supabase.auth.signInAnonymously()
       if (error) throw error
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to continue'
-      console.error('[Auth] Skip error:', msg)
-      setErrorMsg(msg)
+      setErrorMsg(err instanceof Error ? err.message : 'Error al continuar')
     } finally {
       setLoading(false)
     }
@@ -99,119 +124,201 @@ export default function SignInScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {/* Header */}
         <View style={styles.hero}>
           <Text style={styles.logo}>DoIt</Text>
-          <Text style={styles.tagline}>Turn your habits into bets{'\n'}you actually keep.</Text>
+          <Text style={styles.tagline}>Cumple retos. Compite con amigos.{'\n'}Sin excusas.</Text>
         </View>
 
+        {/* ── Method selection ── */}
         {step === 'method' && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Get started</Text>
-
-            {errorMsg && (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>⚠️ {errorMsg}</Text>
-              </View>
-            )}
+            {errorMsg && <ErrorBox msg={errorMsg} />}
 
             <TouchableOpacity
-              style={styles.methodBtn}
-              onPress={() => { clearError(); setStep('email-entry') }}
+              style={styles.primaryBtn}
+              onPress={() => { clearError(); setStep('register') }}
               disabled={loading}
             >
-              <Text style={styles.methodIcon}>✉️</Text>
-              <Text style={styles.methodText}>Continue with Email</Text>
+              <Text style={styles.primaryBtnText}>Crear cuenta gratis</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.methodBtn, styles.googleBtn]}
+              style={styles.outlineBtn}
+              onPress={() => { clearError(); setStep('login') }}
+              disabled={loading}
+            >
+              <Text style={styles.outlineBtnText}>Ya tengo cuenta</Text>
+            </TouchableOpacity>
+
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>o</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              style={styles.googleBtn}
               onPress={handleGoogleSignIn}
               disabled={loading}
             >
-              <Text style={styles.methodIcon}>G</Text>
-              <Text style={styles.methodText}>Continue with Google</Text>
+              <Text style={styles.googleIcon}>G</Text>
+              <Text style={styles.googleText}>Continuar con Google</Text>
             </TouchableOpacity>
 
             <Text style={styles.legal}>
-              By continuing you agree to our Terms & Privacy Policy.{'\n'}No gambling features — rewards are social agreements only.
+              Al continuar aceptas nuestros Términos y Política de Privacidad.{'\n'}
+              Las recompensas son acuerdos sociales, sin apuestas reales.
             </Text>
+
             <TouchableOpacity onPress={handleSkip} disabled={loading} style={styles.skipBtn}>
-              <Text style={styles.skipText}>Skip for now →</Text>
-            </TouchableOpacity>          </View>
+              <Text style={styles.skipText}>Continuar sin cuenta →</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
-        {step === 'email-entry' && (
+        {/* ── Register ── */}
+        {step === 'register' && (
           <View style={styles.card}>
-            <TouchableOpacity onPress={() => { setStep('method'); clearError() }} style={styles.backBtn}>
-              <Text style={styles.backText}>← Back</Text>
+            <TouchableOpacity onPress={goBack} style={styles.backBtn}>
+              <Text style={styles.backText}>← Volver</Text>
             </TouchableOpacity>
-            <Text style={styles.cardTitle}>Enter your email</Text>
-            <Text style={styles.cardSubtitle}>We'll send a 6-digit code</Text>
+            <Text style={styles.cardTitle}>Crear cuenta</Text>
 
-            {errorMsg && (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>⚠️ {errorMsg}</Text>
-              </View>
-            )}
+            {errorMsg && <ErrorBox msg={errorMsg} />}
 
             <TextInput
               style={styles.input}
-              placeholder="you@example.com"
+              placeholder="correo@ejemplo.com"
               placeholderTextColor={Colors.textMuted}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(v) => { setEmail(v); clearError() }}
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
               autoFocus
             />
 
+            <PasswordInput
+              value={password}
+              onChangeText={(v) => { setPassword(v); clearError() }}
+              show={showPassword}
+              onToggle={() => setShowPassword(!showPassword)}
+              placeholder="Contraseña (mín. 6 caracteres)"
+            />
+
+            <PasswordInput
+              value={confirmPassword}
+              onChangeText={(v) => { setConfirmPassword(v); clearError() }}
+              show={showPassword}
+              onToggle={() => setShowPassword(!showPassword)}
+              placeholder="Confirmar contraseña"
+            />
+
             <TouchableOpacity
-              style={[styles.primaryBtn, loading && styles.btnLoading]}
-              onPress={handleSendOTP}
-              disabled={loading || !email.trim()}
+              style={[styles.primaryBtn, (loading || !email.trim() || !password || !confirmPassword) && styles.btnDisabled]}
+              onPress={handleRegister}
+              disabled={loading || !email.trim() || !password || !confirmPassword}
             >
-              <Text style={styles.primaryBtnText}>{loading ? 'Sending...' : 'Send Code'}</Text>
+              <Text style={styles.primaryBtnText}>{loading ? 'Creando cuenta...' : 'Crear cuenta'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => { clearError(); setStep('login') }} style={styles.switchBtn}>
+              <Text style={styles.switchText}>¿Ya tienes cuenta? <Text style={styles.switchLink}>Inicia sesión</Text></Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {step === 'otp-verify' && (
+        {/* ── Login ── */}
+        {step === 'login' && (
           <View style={styles.card}>
-            <TouchableOpacity onPress={() => { setStep('email-entry'); clearError() }} style={styles.backBtn}>
-              <Text style={styles.backText}>← Back</Text>
+            <TouchableOpacity onPress={goBack} style={styles.backBtn}>
+              <Text style={styles.backText}>← Volver</Text>
             </TouchableOpacity>
-            <Text style={styles.cardTitle}>Enter the code</Text>
-            <Text style={styles.cardSubtitle}>Sent to {email}</Text>
+            <Text style={styles.cardTitle}>Iniciar sesión</Text>
 
-            {errorMsg && (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>⚠️ {errorMsg}</Text>
-              </View>
-            )}
+            {errorMsg && <ErrorBox msg={errorMsg} />}
 
             <TextInput
-              style={[styles.input, styles.otpInput]}
-              placeholder="00000000"
+              style={styles.input}
+              placeholder="correo@ejemplo.com"
               placeholderTextColor={Colors.textMuted}
-              value={otp}
-              onChangeText={setOtp}
-              keyboardType="number-pad"
-              maxLength={8}
+              value={email}
+              onChangeText={(v) => { setEmail(v); clearError() }}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              autoFocus
+            />
+
+            <PasswordInput
+              value={password}
+              onChangeText={(v) => { setPassword(v); clearError() }}
+              show={showPassword}
+              onToggle={() => setShowPassword(!showPassword)}
+              placeholder="Contraseña"
+            />
+
+            <TouchableOpacity
+              style={[styles.primaryBtn, (loading || !email.trim() || !password) && styles.btnDisabled]}
+              onPress={handleLogin}
+              disabled={loading || !email.trim() || !password}
+            >
+              <Text style={styles.primaryBtnText}>{loading ? 'Entrando...' : 'Entrar'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleForgotPassword} disabled={loading} style={styles.forgotBtn}>
+              <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => { clearError(); setStep('register') }} style={styles.switchBtn}>
+              <Text style={styles.switchText}>¿No tienes cuenta? <Text style={styles.switchLink}>Regístrate</Text></Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── Forgot password ── */}
+        {step === 'forgot' && (
+          <View style={styles.card}>
+            <TouchableOpacity onPress={() => setStep('login')} style={styles.backBtn}>
+              <Text style={styles.backText}>← Volver</Text>
+            </TouchableOpacity>
+            <Text style={styles.cardTitle}>Recuperar contraseña</Text>
+            <Text style={styles.cardSubtitle}>Te enviaremos un enlace a tu correo</Text>
+
+            {errorMsg && <ErrorBox msg={errorMsg} />}
+
+            <TextInput
+              style={styles.input}
+              placeholder="correo@ejemplo.com"
+              placeholderTextColor={Colors.textMuted}
+              value={email}
+              onChangeText={(v) => { setEmail(v); clearError() }}
+              keyboardType="email-address"
+              autoCapitalize="none"
               autoFocus
             />
 
             <TouchableOpacity
-              style={[styles.primaryBtn, loading && styles.btnLoading]}
-              onPress={handleVerifyOTP}
-              disabled={loading || otp.length < 4}
+              style={[styles.primaryBtn, (loading || !email.trim()) && styles.btnDisabled]}
+              onPress={handleForgotPassword}
+              disabled={loading || !email.trim()}
             >
-              <Text style={styles.primaryBtnText}>{loading ? 'Verifying...' : 'Verify →'}</Text>
+              <Text style={styles.primaryBtnText}>{loading ? 'Enviando...' : 'Enviar enlace'}</Text>
             </TouchableOpacity>
+          </View>
+        )}
 
-            <TouchableOpacity onPress={handleSendOTP} style={styles.resendBtn}>
-              <Text style={styles.resendText}>Resend code</Text>
+        {/* ── Check email confirmation ── */}
+        {step === 'check-email' && (
+          <View style={styles.card}>
+            <Text style={styles.checkEmailIcon}>📬</Text>
+            <Text style={styles.cardTitle}>Revisa tu correo</Text>
+            <Text style={styles.cardSubtitle}>
+              Te enviamos un enlace a{'\n'}
+              <Text style={styles.emailHighlight}>{email}</Text>
+            </Text>
+            <TouchableOpacity onPress={() => setStep('login')} style={styles.outlineBtn}>
+              <Text style={styles.outlineBtnText}>Volver a iniciar sesión</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -220,12 +327,58 @@ export default function SignInScreen() {
   )
 }
 
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function ErrorBox({ msg }: { msg: string }) {
+  return (
+    <View style={styles.errorBox}>
+      <Text style={styles.errorText}>⚠️ {msg}</Text>
+    </View>
+  )
+}
+
+function PasswordInput({
+  value, onChangeText, show, onToggle, placeholder,
+}: {
+  value: string
+  onChangeText: (v: string) => void
+  show: boolean
+  onToggle: () => void
+  placeholder: string
+}) {
+  return (
+    <View style={styles.passwordWrap}>
+      <TextInput
+        style={[styles.input, styles.passwordInput]}
+        placeholder={placeholder}
+        placeholderTextColor={Colors.textMuted}
+        value={value}
+        onChangeText={onChangeText}
+        secureTextEntry={!show}
+        autoCapitalize="none"
+        autoComplete="password"
+      />
+      <TouchableOpacity style={styles.eyeBtn} onPress={onToggle}>
+        <MaterialCommunityIcons
+          name={show ? 'eye-off-outline' : 'eye-outline'}
+          size={20}
+          color={Colors.textMuted}
+        />
+      </TouchableOpacity>
+    </View>
+  )
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { flexGrow: 1, padding: 24, justifyContent: 'center' },
-  hero: { alignItems: 'center', marginBottom: 40 },
+  scroll: { flexGrow: 1, padding: 24, justifyContent: 'center', gap: 0 },
+
+  hero: { alignItems: 'center', marginBottom: 36 },
   logo: { fontSize: 52, fontWeight: '900', color: Colors.primary, letterSpacing: -2, marginBottom: 12 },
-  tagline: { color: Colors.textSecondary, fontSize: 18, textAlign: 'center', lineHeight: 26 },
+  tagline: { color: Colors.textSecondary, fontSize: 17, textAlign: 'center', lineHeight: 25 },
+
   card: {
     backgroundColor: Colors.surface,
     borderRadius: 20,
@@ -235,23 +388,51 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   cardTitle: { color: Colors.text, fontSize: 22, fontWeight: '800' },
-  cardSubtitle: { color: Colors.textSecondary, fontSize: 15, marginTop: -6 },
-  methodBtn: {
+  cardSubtitle: { color: Colors.textSecondary, fontSize: 15, marginTop: -6, lineHeight: 22 },
+
+  primaryBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  primaryBtnText: { color: '#000', fontSize: 16, fontWeight: '800' },
+  btnDisabled: { opacity: 0.4 },
+
+  outlineBtn: {
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  outlineBtnText: { color: Colors.textSecondary, fontSize: 16, fontWeight: '700' },
+
+  divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
+  dividerText: { color: Colors.textMuted, fontSize: 13 },
+
+  googleBtn: {
     backgroundColor: Colors.surfaceElevated,
     borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 16,
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  googleBtn: { borderColor: Colors.primary + '44' },
-  methodIcon: { fontSize: 20, width: 28, textAlign: 'center', color: Colors.text, fontWeight: '700' },
-  methodText: { color: Colors.text, fontSize: 16, fontWeight: '600' },
+  googleIcon: { fontSize: 18, fontWeight: '900', color: Colors.text },
+  googleText: { color: Colors.text, fontSize: 15, fontWeight: '600' },
+
   legal: { color: Colors.textMuted, fontSize: 11, textAlign: 'center', lineHeight: 16 },
+  skipBtn: { alignItems: 'center', paddingVertical: 4 },
+  skipText: { color: Colors.textMuted, fontSize: 13 },
+
   backBtn: { alignSelf: 'flex-start' },
   backText: { color: Colors.primary, fontSize: 15, fontWeight: '600' },
+
   input: {
     backgroundColor: Colors.surfaceElevated,
     borderRadius: 12,
@@ -261,19 +442,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  otpInput: { textAlign: 'center', fontSize: 28, letterSpacing: 8, fontWeight: '700' },
-  primaryBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  btnLoading: { opacity: 0.6 },
-  primaryBtnText: { color: '#fff', fontSize: 17, fontWeight: '800' },
-  resendBtn: { alignItems: 'center' },
-  resendText: { color: Colors.primary, fontSize: 14, fontWeight: '600' },
-  skipBtn: { alignItems: 'center', paddingVertical: 4 },
-  skipText: { color: Colors.textMuted, fontSize: 13 },
+  passwordWrap: { position: 'relative' },
+  passwordInput: { paddingRight: 50 },
+  eyeBtn: { position: 'absolute', right: 14, top: 0, bottom: 0, justifyContent: 'center' },
+
+  forgotBtn: { alignItems: 'center', paddingVertical: 4 },
+  forgotText: { color: Colors.primary, fontSize: 14, fontWeight: '600' },
+
+  switchBtn: { alignItems: 'center', paddingVertical: 4 },
+  switchText: { color: Colors.textMuted, fontSize: 13 },
+  switchLink: { color: Colors.primary, fontWeight: '700' },
+
   errorBox: {
     backgroundColor: '#FF453A22',
     borderRadius: 10,
@@ -282,5 +461,7 @@ const styles = StyleSheet.create({
     borderColor: '#FF453A66',
   },
   errorText: { color: '#FF6B6B', fontSize: 13, fontWeight: '600' },
-})
 
+  checkEmailIcon: { fontSize: 40, textAlign: 'center' },
+  emailHighlight: { color: Colors.text, fontWeight: '700' },
+})

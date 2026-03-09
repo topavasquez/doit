@@ -15,7 +15,7 @@ interface LeaderboardItemProps {
 }
 
 const RANK_COLORS = ['#f0a500', '#9CA3AF', '#CD7C2F']
-const RANK_LABELS = ['1st', '2nd', '3rd']
+const RANK_LABELS = ['1°', '2°', '3°']
 
 export function LeaderboardItem({
   rank,
@@ -50,7 +50,7 @@ export function LeaderboardItem({
         <View style={styles.nameRow}>
           <Text style={[styles.name, is_me && styles.nameMe]} numberOfLines={1}>
             {display_name ?? username}
-            {is_me ? <Text style={styles.youTag}> (you)</Text> : null}
+            {is_me ? <Text style={styles.youTag}> (tú)</Text> : null}
           </Text>
           {!ghost_mode && (
             <Text style={[styles.checkins, { color: rankColor }]}>
@@ -69,9 +69,9 @@ export function LeaderboardItem({
               />
             </View>
             <View style={styles.statsRow}>
-              <Text style={styles.stat}>{completion_pct.toFixed(0)}% complete</Text>
+              <Text style={styles.stat}>{completion_pct.toFixed(0)}% completado</Text>
               {streak_current >= 3 && (
-                <Text style={styles.streak}>{streak_current}-day streak</Text>
+                <Text style={styles.streak}>{streak_current} días de racha</Text>
               )}
             </View>
           </>

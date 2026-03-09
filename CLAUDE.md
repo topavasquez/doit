@@ -88,6 +88,7 @@ C:\dev\doit\
 ## Commands
 
 ### Root (run from `C:\dev\doit`)
+
 ```bash
 npx turbo dev          # Start all apps in dev mode
 npx turbo build        # Build all packages
@@ -95,6 +96,7 @@ npx turbo type-check   # Type-check all packages
 ```
 
 ### API (`apps/api`)
+
 ```bash
 npm run dev            # tsx watch src/index.ts (hot reload)
 npm run build          # tsc compile to dist/
@@ -106,6 +108,7 @@ npm run db:seed        # seed demo data
 ```
 
 ### Mobile (`apps/mobile`)
+
 ```bash
 npm run dev            # expo start
 npm run ios            # expo run:ios
@@ -126,6 +129,7 @@ npm run lint           # eslint
 **Database:** Prisma with PostgreSQL (Supabase). Schema in `apps/api/prisma/schema.prisma`. Models: `User`, `Group`, `GroupMember`, `Challenge`, `ChallengeParticipant`, `Checkin`, `LeaderboardSnapshot`, `Notification`.
 
 **Environment variables** (`apps/api/.env`):
+
 - `DATABASE_URL` — PostgreSQL connection string (pooled)
 - `DIRECT_URL` — PostgreSQL direct connection (for migrations)
 - `REDIS_URL` — Redis connection string
@@ -133,7 +137,12 @@ npm run lint           # eslint
 - `PORT` — defaults to 4000
 - `ALLOWED_ORIGINS` — CORS origins (e.g., `http://localhost:8081`)
 
+**Environment variables** (`apps/mobile/.env`):
+
+- `EXPO_PUBLIC_API_URL` — API base URL (defaults to `http://localhost:4000`)
+
 **API endpoints summary:**
+
 - `POST /auth/sync-user` — create/sync user after Supabase sign-in
 - `GET /groups`, `POST /groups`, `GET /groups/:id`, `POST /groups/join/:code`
 - `POST /groups/:id/invite`, `DELETE /groups/:id/members/:userId`
@@ -148,11 +157,12 @@ npm run lint           # eslint
 ## Mobile Architecture
 
 **Routing:** expo-router file-based routing. Route groups:
+
 - `(auth)/` — sign-in and onboarding (shown when not authenticated)
-- `(tabs)/` — main tab navigation
+- `(tabs)/` — main tab navigation (Inicio, Grupos, Competir, Perfil)
 - `group/[id]` — group detail with Retos + Feed tabs
 - `challenge/[id]` — challenge detail with leaderboard + activity
-- `challenge/photo-checkin` — photo check-in screen (modal presentation)
+- `challenge/photo-checkin` — photo check-in screen (modal); params: `challengeId`, `challengeTitle?`, `groupId?`
 - `challenge/create` — create challenge modal
 
 **Auth state:** `store/auth.ts` (Zustand) holds `session`, `supabaseUser`, and the synced `user` record. The auth guard in `_layout.tsx` redirects between auth and main flows.
@@ -166,6 +176,7 @@ npm run lint           # eslint
 ## Shared Package
 
 `packages/shared/src/constants.ts`:
+
 - `HABIT_CATEGORIES`: `gym | reading | sleep | diet | study | custom`
 - `CHALLENGE_STATUSES`: `pending | active | completed | cancelled`
 - `CHALLENGE_DURATIONS`: `7 | 30 | 90` (days only)
@@ -174,9 +185,17 @@ npm run lint           # eslint
 
 `packages/shared/src/types.ts` — all shared interfaces. Import as `import type { ... } from '@doit/shared'`.
 
+`apps/mobile/constants/index.ts` (mobile-only):
+
+- `HABIT_CATEGORY_CONFIG` — maps category keys to `{ label, color }` (Spanish labels)
+- `QUICK_REACTIONS` — `["+1", "strong", "clap", "fire", "let's go"]`
+- `LEVEL_THRESHOLDS` — XP thresholds for levels 1–11; use `getLevel(xp)` helper
+- `formatRelativeTime(dateStr)` / `formatDaysLeft(endDateStr)` — Spanish locale display
+
 ## UI Design System
 
 **Brand colors** (`apps/mobile/constants/colors.ts`):
+
 - `#fe7d1b` — primary (orange)
 - `#111111` — background
 - `#fff9f9` — text
@@ -185,6 +204,7 @@ npm run lint           # eslint
 - `#2e2e2e` — border
 
 **Design patterns:**
+
 - Cards: `borderRadius: 16-18`, `borderWidth: 1`, `borderColor: Colors.border`, `backgroundColor: Colors.surface`
 - Stat cards: tinted background `color + '20'` (no border)
 - Tab pills: two-option switcher — active = `Colors.primary` bg + `#000` text
@@ -228,3 +248,7 @@ Auto-refreshes every 30 seconds.
 - Project ID: `vqkxpnsynmwpgyjwhxwx`
 - Region: `us-east-2`
 - Storage bucket: `checkin-photos` (public)
+
+## Language
+
+- All UI text must be written in Spanish (labels, buttons, error messages, placeholders)

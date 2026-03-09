@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native'
-import { useQuery } from '@tanstack/react-query'
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRouter } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usersApi } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/auth'
+import { INTRO_STORAGE_KEY } from '../../hooks/useAuth'
 import { Colors } from '../../constants/colors'
 import { ChallengeCard } from '../../components/ChallengeCard'
 import { LEVEL_THRESHOLDS } from '../../constants'
@@ -12,7 +15,9 @@ import type { Challenge } from '@doit/shared'
 type ProfileTab = 'active' | 'history'
 
 export default function ProfileScreen() {
-  const { user, reset } = useAuthStore()
+  const { user, reset, isLoading } = useAuthStore()
+  const queryClient = useQueryClient()
+  const router = useRouter()
   const [tab, setTab] = useState<ProfileTab>('active')
 
   const { data: statsData } = useQuery({
@@ -43,16 +48,34 @@ export default function ProfileScreen() {
   const completedChallenges = challenges.filter((c) => c.status === 'completed')
 
   async function handleSignOut() {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out', style: 'destructive',
-        onPress: async () => { await supabase.auth.signOut(); reset() },
-      },
-    ])
+    await supabase.auth.signOut()
+    await AsyncStorage.removeItem(INTRO_STORAGE_KEY)
+    queryClient.clear()
+    reset()
+    router.replace('/')
   }
 
-  if (!user) return null
+  if (isLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    )
+  }
+
+  if (!user) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.noUserText}>No hay sesión activa</Text>
+        <TouchableOpacity
+          style={styles.signInBtn}
+          onPress={async () => { await supabase.auth.signOut(); queryClient.clear(); reset() }}
+        >
+          <Text style={styles.signInBtnText}>Ir a Iniciar Sesión</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
 
   const initial = (user.display_name ?? user.username)[0].toUpperCase()
 
@@ -71,11 +94,11 @@ export default function ProfileScreen() {
         <View style={styles.badgeRow}>
           {(stats?.longest_streak ?? 0) > 0 && (
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>{stats!.longest_streak}-Day Best Streak</Text>
+              <Text style={styles.badgeText}>Mejor Racha: {stats!.longest_streak} días</Text>
             </View>
           )}
           <View style={[styles.badge, styles.levelBadge]}>
-            <Text style={[styles.badgeText, styles.levelBadgeText]}>Level {user.level}</Text>
+            <Text style={[styles.badgeText, styles.levelBadgeText]}>Nivel {user.level}</Text>
           </View>
         </View>
       </View>
@@ -84,7 +107,7 @@ export default function ProfileScreen() {
       <View style={styles.xpSection}>
         <View style={styles.xpRow}>
           <Text style={styles.xpLabel}>{user.xp} XP</Text>
-          {xpForNext && <Text style={styles.xpNext}>Next level: {xpForNext} XP</Text>}
+          {xpForNext && <Text style={styles.xpNext}>Siguiente nivel: {xpForNext} XP</Text>}
         </View>
         <View style={styles.xpBar}>
           <View style={[styles.xpFill, { width: `${xpProgress}%` as `${number}%` }]} />
@@ -94,9 +117,9 @@ export default function ProfileScreen() {
       {/* Stats row */}
       {stats && (
         <View style={styles.statsRow}>
-          <StatCard label="Challenges" value={stats.total_challenges} color={Colors.primary} />
+          <StatCard label="Retos" value={stats.total_challenges} color={Colors.primary} />
           <StatCard label="Check-ins" value={stats.total_checkins} color="#3B82F6" />
-          <StatCard label="Best Streak" value={stats.longest_streak} color="#8B5CF6" />
+          <StatCard label="Mejor Racha" value={stats.longest_streak} color="#8B5CF6" />
         </View>
       )}
 
@@ -107,21 +130,21 @@ export default function ProfileScreen() {
           onPress={() => setTab('active')}
         >
           <Text style={[styles.tabText, tab === 'active' && styles.tabTextActive]}>
-            Active{activeChallenges.length > 0 ? ` (${activeChallenges.length})` : ''}
+            Activos{activeChallenges.length > 0 ? ` (${activeChallenges.length})` : ''}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tab, tab === 'history' && styles.tabActive]}
           onPress={() => setTab('history')}
         >
-          <Text style={[styles.tabText, tab === 'history' && styles.tabTextActive]}>History</Text>
+          <Text style={[styles.tabText, tab === 'history' && styles.tabTextActive]}>Historial</Text>
         </TouchableOpacity>
       </View>
 
       {tab === 'active' && (
         <View style={styles.tabContent}>
           {activeChallenges.length === 0 ? (
-            <Text style={styles.emptyTabText}>No active challenges</Text>
+            <Text style={styles.emptyTabText}>Sin retos activos</Text>
           ) : (
             activeChallenges.map((c) => <ChallengeCard key={c.id} challenge={c} />)
           )}
@@ -131,7 +154,7 @@ export default function ProfileScreen() {
       {tab === 'history' && (
         <View style={styles.tabContent}>
           {completedChallenges.length === 0 ? (
-            <Text style={styles.emptyTabText}>No completed challenges yet</Text>
+            <Text style={styles.emptyTabText}>Sin retos completados aún</Text>
           ) : (
             completedChallenges.slice(0, 10).map((c) => <ChallengeCard key={c.id} challenge={c} />)
           )}
@@ -140,7 +163,7 @@ export default function ProfileScreen() {
 
       {/* Sign out */}
       <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
-        <Text style={styles.signOutText}>Sign Out</Text>
+        <Text style={styles.signOutText}>Cerrar Sesión</Text>
       </TouchableOpacity>
     </ScrollView>
   )
@@ -170,6 +193,10 @@ const statStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { padding: 20, paddingBottom: 60 },
+  centered: { flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', gap: 16 },
+  noUserText: { color: Colors.textSecondary, fontSize: 16 },
+  signInBtn: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 },
+  signInBtnText: { color: '#000', fontWeight: '800', fontSize: 16 },
 
   hero: { alignItems: 'center', marginBottom: 24, paddingTop: 8 },
   avatarWrap: { marginBottom: 14 },

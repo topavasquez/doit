@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, RefreshControl, ActivityIndicator,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useRouter, useFocusEffect } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useQuery } from '@tanstack/react-query'
 import { usersApi, groupsApi } from '../../lib/api'
@@ -67,6 +67,14 @@ export default function HomeScreen() {
     staleTime: 60_000,
   })
 
+  // Refetch on every focus (e.g. returning from create challenge or check-in)
+  useFocusEffect(
+    useCallback(() => {
+      refetchChallenges()
+      refetchStats()
+    }, [])
+  )
+
   const stats = (statsData?.stats as {
     total_challenges: number
     total_checkins: number
@@ -118,12 +126,12 @@ export default function HomeScreen() {
             <Text style={styles.greetingHello}>
               Hello, {user?.display_name ?? user?.username ?? 'there'}!
             </Text>
-            <Text style={styles.greetingSubtitle}>Let's keep the streak alive today</Text>
+            <Text style={styles.greetingSubtitle}>Mantengamos la racha viva hoy</Text>
           </View>
           {currentStreak > 0 && (
             <View style={styles.streakBadge}>
               <Text style={styles.streakNumber}>{currentStreak}</Text>
-              <Text style={styles.streakLabel}>Day{'\n'}Streak</Text>
+              <Text style={styles.streakLabel}>Días{'\n'}Racha</Text>
             </View>
           )}
         </View>
@@ -132,9 +140,9 @@ export default function HomeScreen() {
         {totalActive > 0 && (
           <View style={styles.progressCard}>
             <View style={styles.progressHeader}>
-              <Text style={styles.progressTitle}>Daily Progress</Text>
+              <Text style={styles.progressTitle}>Progreso Diario</Text>
               <Text style={[styles.progressCount, { color: progressPct === 100 ? Colors.success : Colors.primary }]}>
-                {doneToday}/{totalActive} challenges
+                {doneToday}/{totalActive} retos
               </Text>
             </View>
             <View style={styles.progressTrack}>
@@ -160,19 +168,19 @@ export default function HomeScreen() {
           <StatCard
             icon="check-circle-outline"
             value={stats?.total_checkins ?? 0}
-            label="Tasks Done"
+            label="Tareas Hechas"
             color="#3B82F6"
           />
           <StatCard
             icon="trophy-outline"
             value={user?.xp ?? 0}
-            label="Points"
+            label="Puntos"
             color={Colors.success}
           />
           <StatCard
             icon="account-group-outline"
             value={groupCount}
-            label="Groups"
+            label="Grupos"
             color={Colors.primary}
           />
         </View>
@@ -186,7 +194,7 @@ export default function HomeScreen() {
               onPress={() => setDayTab(t)}
             >
               <Text style={[styles.dayTabText, dayTab === t && styles.dayTabTextActive]}>
-                {t === 'today' ? 'Today' : t === 'upcoming' ? 'Upcoming' : 'Completed'}
+                {t === 'today' ? 'Hoy' : t === 'upcoming' ? 'Próximos' : 'Completados'}
               </Text>
             </TouchableOpacity>
           ))}
@@ -206,12 +214,12 @@ export default function HomeScreen() {
             />
             <Text style={styles.emptyDayText}>
               {dayTab === 'today' && totalActive === 0
-                ? 'No active challenges — join a group to start!'
+                ? 'Sin retos activos — ¡únete a un grupo para empezar!'
                 : dayTab === 'today'
-                  ? 'All done for today! Great work.'
+                  ? '¡Todo listo por hoy! Buen trabajo.'
                   : dayTab === 'upcoming'
-                    ? 'No pending challenges'
-                    : 'No check-ins yet today'}
+                    ? 'Sin retos pendientes'
+                    : 'Sin check-ins hoy'}
             </Text>
           </View>
         ) : (
@@ -240,7 +248,7 @@ export default function HomeScreen() {
                     })}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.doItBtnText}>Do It</Text>
+                    <Text style={styles.doItBtnText}>Hazlo</Text>
                   </TouchableOpacity>
                 )}
                 {dayTab === 'completed' && (
@@ -270,7 +278,7 @@ export default function HomeScreen() {
             activeOpacity={0.85}
           >
             <MaterialCommunityIcons name="account-group-outline" size={18} color="#fff9f9" />
-            <Text style={styles.ctaBtnText}>My Groups</Text>
+            <Text style={styles.ctaBtnText}>Mis Grupos</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.ctaBtn, styles.ctaBtnCompete]}
@@ -278,7 +286,7 @@ export default function HomeScreen() {
             activeOpacity={0.85}
           >
             <MaterialCommunityIcons name="trophy-outline" size={18} color="#fff9f9" />
-            <Text style={styles.ctaBtnText}>Competitions</Text>
+            <Text style={styles.ctaBtnText}>Competiciones</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

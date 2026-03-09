@@ -4,6 +4,7 @@ import { prisma } from "../plugins/db";
 import { leaderboard, rateLimiter } from "../plugins/redis";
 import { requireAuth } from "../middleware/auth";
 import { STREAK_MILESTONES } from "@doit/shared";
+import { getUTCDays } from "../lib/dates";
 
 const createCheckinSchema = z.object({
   challenge_id: z.string().uuid(),
@@ -33,8 +34,8 @@ export async function checkinRoutes(app: FastifyInstance) {
 
       const { challenge_id, ...rest } = parsed.data;
 
-      // Verify challenge is active and user is a participant
-      const [challenge, participant] = await Promise.all([
+      // Verify challenge is active, user is a participant, and fetch streak in parallel
+      const [challenge, participant, userStreakData] = await Promise.all([
         prisma.challenge.findUnique({
           where: { id: challenge_id },
           select: { status: true, frequency: true, group_id: true },
@@ -43,6 +44,10 @@ export async function checkinRoutes(app: FastifyInstance) {
           where: {
             challenge_id_user_id: { challenge_id, user_id: request.userId },
           },
+        }),
+        prisma.user.findUnique({
+          where: { id: request.userId },
+          select: { streak_current: true, streak_longest: true, last_checkin_date: true },
         }),
       ]);
 
@@ -98,9 +103,27 @@ export async function checkinRoutes(app: FastifyInstance) {
         });
       }
 
-      // Create check-in and update participant stats in a transaction
-      const newStreak = participant.streak_current + 1;
-      const newLongest = Math.max(newStreak, participant.streak_longest);
+      // Compute global daily streak (once per day regardless of how many challenges checked in)
+      const { todayUTC, yesterdayUTC } = getUTCDays()
+
+      const lastDate = userStreakData?.last_checkin_date
+        ? new Date(userStreakData.last_checkin_date)
+        : null;
+      if (lastDate) lastDate.setUTCHours(0, 0, 0, 0);
+
+      // Only update streak on the first check-in of the day (globally)
+      const isFirstCheckinToday = !lastDate || lastDate.getTime() < todayUTC.getTime();
+
+      let newGlobalStreak = userStreakData?.streak_current ?? 0;
+      let newGlobalLongest = userStreakData?.streak_longest ?? 0;
+
+      if (isFirstCheckinToday) {
+        const wasYesterday = lastDate && lastDate.getTime() === yesterdayUTC.getTime();
+        newGlobalStreak = wasYesterday ? newGlobalStreak + 1 : 1;
+        newGlobalLongest = Math.max(newGlobalStreak, newGlobalLongest);
+      }
+
+      // Per-challenge stats (total_checkins used for leaderboard score)
       const newTotal = participant.total_checkins + 1;
 
       const [checkin] = await prisma.$transaction([
@@ -128,16 +151,18 @@ export async function checkinRoutes(app: FastifyInstance) {
           where: {
             challenge_id_user_id: { challenge_id, user_id: request.userId },
           },
-          data: {
-            total_checkins: newTotal,
-            streak_current: newStreak,
-            streak_longest: newLongest,
-          },
+          data: { total_checkins: newTotal },
         }),
-        // Award XP
         prisma.user.update({
           where: { id: request.userId },
-          data: { xp: { increment: 10 } },
+          data: {
+            xp: { increment: 10 },
+            ...(isFirstCheckinToday && {
+              streak_current: newGlobalStreak,
+              streak_longest: newGlobalLongest,
+              last_checkin_date: todayUTC,
+            }),
+          },
         }),
       ]);
 
@@ -170,20 +195,23 @@ export async function checkinRoutes(app: FastifyInstance) {
         });
       }
 
-      // Check streak milestones
-      if ((STREAK_MILESTONES as readonly number[]).includes(newStreak)) {
+      // Check streak milestones (global streak)
+      if (
+        isFirstCheckinToday &&
+        (STREAK_MILESTONES as readonly number[]).includes(newGlobalStreak)
+      ) {
         await prisma.notification.create({
           data: {
             user_id: request.userId,
             type: "streak_milestone",
-            payload: { challenge_id, streak: newStreak },
+            payload: { challenge_id, streak: newGlobalStreak },
           },
         });
       }
 
       return reply.status(201).send({
         checkin,
-        streak: newStreak,
+        streak: newGlobalStreak,
         total_checkins: newTotal,
       });
     },

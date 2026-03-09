@@ -6,6 +6,7 @@ import "dotenv/config";
 
 import { prisma } from "./plugins/db";
 import { redis } from "./plugins/redis";
+import { getUTCDays } from "./lib/dates";
 import { authRoutes } from "./routes/auth";
 import { userRoutes } from "./routes/users";
 import { groupRoutes } from "./routes/groups";
@@ -93,6 +94,27 @@ async function bootstrap() {
       message:
         statusCode === 500 ? "An unexpected error occurred" : error.message,
     });
+  });
+
+  // Cron: Reset streak to 0 for users who missed an entire day (runs at 00:01 UTC)
+  cron.schedule("1 0 * * *", async () => {
+    const { yesterdayUTC } = getUTCDays()
+
+    // Reset users whose last check-in was before yesterday (missed the whole day)
+    const reset = await prisma.user.updateMany({
+      where: {
+        streak_current: { gt: 0 },
+        OR: [
+          { last_checkin_date: { lt: yesterdayUTC } },
+          { last_checkin_date: null },
+        ],
+      },
+      data: { streak_current: 0 },
+    });
+
+    if (reset.count > 0) {
+      app.log.info(`[Streak] Reset streak for ${reset.count} users who missed yesterday`);
+    }
   });
 
   // Cron: Mark challenges as completed when end_date has passed

@@ -42,7 +42,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Inicio',
           headerTitle: () => <Logo size="sm" showWordmark />,
           headerRight: () => <SettingsButton />,
           tabBarIcon: ({ color, size }) => (
@@ -53,7 +53,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="groups"
         options={{
-          title: 'Groups',
+          title: 'Grupos',
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="account-group-outline" color={color} size={size} />
           ),
@@ -62,7 +62,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="compete"
         options={{
-          title: 'Compete',
+          title: 'Competir',
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="trophy-outline" color={color} size={size} />
           ),
@@ -71,7 +71,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
+          title: 'Perfil',
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="account-circle-outline" color={color} size={size} />
           ),

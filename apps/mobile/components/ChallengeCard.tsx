@@ -11,10 +11,10 @@ interface ChallengeCardProps {
 }
 
 const STATUS_CONFIG = {
-  active: { label: 'Active', bg: Colors.success + '25', text: Colors.success },
-  pending: { label: 'Pending', bg: Colors.warning + '25', text: Colors.warning },
-  completed: { label: 'Done', bg: Colors.textMuted + '25', text: Colors.textMuted },
-  cancelled: { label: 'Cancelled', bg: Colors.error + '25', text: Colors.error },
+  active: { label: 'Activo', bg: Colors.success + '25', text: Colors.success },
+  pending: { label: 'Pendiente', bg: Colors.warning + '25', text: Colors.warning },
+  completed: { label: 'Terminado', bg: Colors.textMuted + '25', text: Colors.textMuted },
+  cancelled: { label: 'Cancelado', bg: Colors.error + '25', text: Colors.error },
 }
 
 export function ChallengeCard({ challenge, showGroup, groupName }: ChallengeCardProps) {
@@ -54,7 +54,7 @@ export function ChallengeCard({ challenge, showGroup, groupName }: ChallengeCard
       {/* Reward */}
       {challenge.reward_description && (
         <View style={styles.rewardRow}>
-          <Text style={styles.rewardLabel}>REWARD</Text>
+          <Text style={styles.rewardLabel}>RECOMPENSA</Text>
           <Text style={styles.rewardText} numberOfLines={1}>{challenge.reward_description}</Text>
         </View>
       )}
@@ -64,7 +64,7 @@ export function ChallengeCard({ challenge, showGroup, groupName }: ChallengeCard
         <View style={styles.footerLeft}>
           <Text style={styles.footerStat}>{challenge.duration_days}d</Text>
           <Text style={styles.footerDot}>·</Text>
-          <Text style={styles.footerStat}>{challenge.participant_count ?? 0} participants</Text>
+          <Text style={styles.footerStat}>{challenge.participant_count ?? 0} participantes</Text>
           {challenge.end_date && (
             <>
               <Text style={styles.footerDot}>·</Text>
@@ -73,7 +73,7 @@ export function ChallengeCard({ challenge, showGroup, groupName }: ChallengeCard
           )}
         </View>
         {participation && participation.streak_current > 0 && (
-          <Text style={styles.streakText}>{participation.streak_current} streak</Text>
+          <Text style={styles.streakText}>{participation.streak_current} días racha</Text>
         )}
       </View>
 

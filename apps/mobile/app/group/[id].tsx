@@ -44,7 +44,7 @@ export default function GroupScreen() {
     mutationFn: (challengeId: string) => challengesApi.start(challengeId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['group', id] })
-      Alert.alert('Challenge Started', 'All participants have been notified. Game on!')
+      Alert.alert('¡Reto Iniciado!', 'Todos los participantes han sido notificados. ¡A jugar!')
     },
     onError: (err: Error) => Alert.alert('Error', err.message),
   })
@@ -68,7 +68,7 @@ export default function GroupScreen() {
   async function handleShare() {
     const { invite_code } = await groupsApi.getInvite(group!.id)
     Share.share({
-      message: `Join my DoIt group "${group!.name}"! Use invite code: ${invite_code}\n\nDownload DoIt to compete on real habits with real stakes.`,
+      message: `¡Únete a mi grupo DoIt "${group!.name}"! Usa el código de invitación: ${invite_code}\n\nDescarga DoIt para competir en hábitos reales con apuestas reales.`,
     })
   }
 

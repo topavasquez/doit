@@ -37,7 +37,7 @@ export default function GroupsScreen() {
       setGroupName('')
       router.push(`/group/${(res.group as Group).id}`)
     },
-    onError: (err) => Alert.alert('Error', err instanceof Error ? err.message : 'Failed to create group'),
+    onError: (err) => Alert.alert('Error', err instanceof Error ? err.message : 'Error al crear el grupo'),
   })
 
   const joinMutation = useMutation({
@@ -48,7 +48,7 @@ export default function GroupsScreen() {
       setTab('my')
       router.push(`/group/${(res.group as Group).id}`)
     },
-    onError: () => Alert.alert('Error', 'Invalid invite code or group is full'),
+    onError: () => Alert.alert('Error', 'Código de invitación inválido o el grupo está lleno'),
   })
 
   const groups = (data?.groups ?? []) as (Group & { member_count?: number; my_role?: string })[]
@@ -68,7 +68,7 @@ export default function GroupsScreen() {
           <MaterialCommunityIcons name="magnify" size={20} color={Colors.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search groups..."
+            placeholder="Buscar grupos..."
             placeholderTextColor={Colors.textMuted}
             value={search}
             onChangeText={setSearch}
@@ -83,10 +83,10 @@ export default function GroupsScreen() {
         {/* Tabs */}
         <View style={styles.tabs}>
           <TouchableOpacity style={[styles.tab, tab === 'my' && styles.tabActive]} onPress={() => setTab('my')}>
-            <Text style={[styles.tabText, tab === 'my' && styles.tabTextActive]}>My Groups</Text>
+            <Text style={[styles.tabText, tab === 'my' && styles.tabTextActive]}>Mis Grupos</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.tab, tab === 'join' && styles.tabActive]} onPress={() => setTab('join')}>
-            <Text style={[styles.tabText, tab === 'join' && styles.tabTextActive]}>Discover</Text>
+            <Text style={[styles.tabText, tab === 'join' && styles.tabTextActive]}>Descubrir</Text>
           </TouchableOpacity>
         </View>
 
@@ -94,19 +94,19 @@ export default function GroupsScreen() {
         {tab === 'my' && (
           <>
             {isLoading ? (
-              <View style={styles.loadingWrap}><Text style={styles.loadingText}>Loading your groups...</Text></View>
+              <View style={styles.loadingWrap}><Text style={styles.loadingText}>Cargando tus grupos...</Text></View>
             ) : filtered.length === 0 ? (
               <View style={styles.emptyState}>
                 <View style={styles.emptyIconBox}>
                   <MaterialCommunityIcons name="account-group-outline" size={36} color={Colors.primary} />
                 </View>
-                <Text style={styles.emptyTitle}>{search ? 'No matches' : 'No groups yet'}</Text>
+                <Text style={styles.emptyTitle}>{search ? 'Sin resultados' : 'Sin grupos aún'}</Text>
                 <Text style={styles.emptySubtext}>
-                  {search ? `No groups matching "${search}"` : 'Create a group with your friends.\nThe loser buys brunch.'}
+                  {search ? `Sin grupos que coincidan con "${search}"` : 'Crea un grupo con tus amigos.\nEl que pierde invita el brunch.'}
                 </Text>
                 {!search && (
                   <TouchableOpacity style={styles.emptyAction} onPress={() => setShowCreateModal(true)}>
-                    <Text style={styles.emptyActionText}>Create your first group</Text>
+                    <Text style={styles.emptyActionText}>Crea tu primer grupo</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -121,8 +121,8 @@ export default function GroupsScreen() {
           <View style={styles.joinPanel}>
             <View style={styles.joinCard}>
               <MaterialCommunityIcons name="key-variant" size={28} color={Colors.primary} style={styles.joinIcon} />
-              <Text style={styles.joinTitle}>Join with Invite Code</Text>
-              <Text style={styles.joinSubtitle}>Ask a friend for their 8-character group code</Text>
+              <Text style={styles.joinTitle}>Unirse con Código de Invitación</Text>
+              <Text style={styles.joinSubtitle}>Pide a un amigo su código de grupo de 8 caracteres</Text>
               <TextInput
                 style={styles.codeInput}
                 placeholder="CREW1234"
@@ -138,7 +138,7 @@ export default function GroupsScreen() {
                 onPress={() => joinMutation.mutate(inviteCode.trim())}
                 disabled={!inviteCode.trim() || joinMutation.isPending}
               >
-                <Text style={styles.joinBtnText}>{joinMutation.isPending ? 'Joining...' : 'Join Group'}</Text>
+                <Text style={styles.joinBtnText}>{joinMutation.isPending ? 'Uniéndose...' : 'Unirse al Grupo'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -154,10 +154,10 @@ export default function GroupsScreen() {
       <Modal visible={showCreateModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Create a Group</Text>
+            <Text style={styles.modalTitle}>Crear un Grupo</Text>
             <TextInput
               style={styles.modalInput}
-              placeholder="Group name (e.g. Morning Crew)"
+              placeholder="Nombre del grupo (ej. Equipo Mañanero)"
               placeholderTextColor={Colors.textMuted}
               value={groupName}
               onChangeText={setGroupName}
@@ -166,14 +166,14 @@ export default function GroupsScreen() {
             />
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowCreateModal(false); setGroupName('') }}>
-                <Text style={styles.cancelText}>Cancel</Text>
+                <Text style={styles.cancelText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.confirmBtn, (!groupName.trim() || createMutation.isPending) && styles.btnDisabled]}
                 onPress={() => createMutation.mutate(groupName.trim())}
                 disabled={!groupName.trim() || createMutation.isPending}
               >
-                <Text style={styles.confirmText}>{createMutation.isPending ? 'Creating...' : 'Create'}</Text>
+                <Text style={styles.confirmText}>{createMutation.isPending ? 'Creando...' : 'Crear'}</Text>
               </TouchableOpacity>
             </View>
           </View>

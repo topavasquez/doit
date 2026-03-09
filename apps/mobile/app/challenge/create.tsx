@@ -12,8 +12,8 @@ import type { HabitCategory, ChallengeFrequency, Challenge } from '@doit/shared'
 
 const DURATIONS = [7, 30, 90] as const
 const FREQUENCIES: { value: ChallengeFrequency; label: string; desc: string }[] = [
-  { value: 'daily', label: 'Daily', desc: 'Check in every day' },
-  { value: 'weekly', label: 'Weekly', desc: 'Check in once per week' },
+  { value: 'daily', label: 'Diario', desc: 'Haz check-in cada día' },
+  { value: 'weekly', label: 'Semanal', desc: 'Haz check-in una vez por semana' },
 ]
 
 export default function CreateChallengeScreen() {
@@ -53,14 +53,14 @@ export default function CreateChallengeScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'New Challenge' }} />
+      <Stack.Screen options={{ title: 'Nuevo Reto' }} />
       <ScrollView style={styles.container} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {/* Title */}
         <View style={styles.field}>
-          <Text style={styles.label}>Challenge Title *</Text>
+          <Text style={styles.label}>Título del Reto *</Text>
           <TextInput
             style={styles.input}
-            placeholder="e.g. 30-Day Gym Grind"
+            placeholder="ej. 30 Días en el Gym"
             placeholderTextColor={Colors.textMuted}
             value={title}
             onChangeText={setTitle}
@@ -71,10 +71,10 @@ export default function CreateChallengeScreen() {
 
         {/* Description */}
         <View style={styles.field}>
-          <Text style={styles.label}>Description (optional)</Text>
+          <Text style={styles.label}>Descripción (opcional)</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
-            placeholder="What are the rules? What counts as a check-in?"
+            placeholder="¿Cuáles son las reglas? ¿Qué cuenta como check-in?"
             placeholderTextColor={Colors.textMuted}
             value={description}
             onChangeText={setDescription}
@@ -86,7 +86,7 @@ export default function CreateChallengeScreen() {
 
         {/* Habit Category */}
         <View style={styles.field}>
-          <Text style={styles.label}>Habit Category *</Text>
+          <Text style={styles.label}>Categoría de Hábito *</Text>
           <View style={styles.categoryGrid}>
             {(Object.entries(HABIT_CATEGORY_CONFIG) as [HabitCategory, typeof HABIT_CATEGORY_CONFIG[HabitCategory]][]).map(([key, config]) => (
               <TouchableOpacity
@@ -103,7 +103,7 @@ export default function CreateChallengeScreen() {
 
         {/* Duration */}
         <View style={styles.field}>
-          <Text style={styles.label}>Duration</Text>
+          <Text style={styles.label}>Duración</Text>
           <View style={styles.optionRow}>
             {DURATIONS.map((d) => (
               <TouchableOpacity
@@ -111,7 +111,7 @@ export default function CreateChallengeScreen() {
                 style={[styles.optionBtn, duration === d && styles.optionBtnActive]}
                 onPress={() => setDuration(d)}
               >
-                <Text style={[styles.optionBtnText, duration === d && styles.optionBtnTextActive]}>{d} days</Text>
+                <Text style={[styles.optionBtnText, duration === d && styles.optionBtnTextActive]}>{d} días</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -119,7 +119,7 @@ export default function CreateChallengeScreen() {
 
         {/* Frequency */}
         <View style={styles.field}>
-          <Text style={styles.label}>Check-in Frequency</Text>
+          <Text style={styles.label}>Frecuencia de Check-in</Text>
           <View style={styles.freqRow}>
             {FREQUENCIES.map((f) => (
               <TouchableOpacity
@@ -136,24 +136,24 @@ export default function CreateChallengeScreen() {
 
         {/* Reward */}
         <View style={styles.field}>
-          <Text style={styles.label}>Reward / Stake</Text>
+          <Text style={styles.label}>Recompensa / Apuesta</Text>
           <TextInput
             style={styles.input}
-            placeholder="e.g. Losers buy brunch for the whole group"
+            placeholder="ej. Los que pierden invitan el brunch al grupo"
             placeholderTextColor={Colors.textMuted}
             value={reward}
             onChangeText={setReward}
             maxLength={200}
           />
-          <Text style={styles.hint}>Keep it social — dinner, chores, coffee, bragging rights</Text>
+          <Text style={styles.hint}>Mantenlo social — cena, tareas, café, derechos de alardear</Text>
         </View>
 
         {/* Ghost Mode */}
         <View style={styles.field}>
           <TouchableOpacity style={styles.toggleRow} onPress={() => setGhostMode(!ghostMode)}>
             <View style={styles.toggleInfo}>
-              <Text style={styles.toggleLabel}>Ghost Mode</Text>
-              <Text style={styles.toggleDesc}>Hide completion % — only show rank. Adds tension.</Text>
+              <Text style={styles.toggleLabel}>Modo Fantasma</Text>
+              <Text style={styles.toggleDesc}>Oculta el % de completado — solo muestra el rango. Añade tensión.</Text>
             </View>
             <View style={[styles.toggle, ghostMode && styles.toggleOn]}>
               <View style={[styles.toggleKnob, ghostMode && styles.toggleKnobOn]} />
@@ -168,11 +168,11 @@ export default function CreateChallengeScreen() {
           disabled={!canSubmit}
         >
           <Text style={styles.submitBtnText}>
-            {createMutation.isPending ? 'Creating...' : 'Create Challenge'}
+            {createMutation.isPending ? 'Creando...' : 'Crear Reto'}
           </Text>
         </TouchableOpacity>
 
-        <Text style={styles.submitHint}>You'll need at least 2 participants before starting</Text>
+        <Text style={styles.submitHint}>Necesitarás al menos 2 participantes antes de iniciar</Text>
       </ScrollView>
     </>
   )

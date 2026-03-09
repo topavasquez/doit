@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { supabase } from '../plugins/supabase'
 import { prisma } from '../plugins/db'
-import { requireAuth } from '../middleware/auth'
+import { requireAuth, requireSupabaseAuth } from '../middleware/auth'
 
 const createProfileSchema = z.object({
   username: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
@@ -14,7 +14,7 @@ export async function authRoutes(app: FastifyInstance) {
   // POST /auth/sync-user
   // Called after Supabase auth to create/sync user record in our DB
   app.post('/sync-user', {
-    preHandler: requireAuth,
+    preHandler: requireSupabaseAuth,
     handler: async (request, reply) => {
       const body = request.body as Record<string, unknown>
       const parsed = createProfileSchema.safeParse(body)

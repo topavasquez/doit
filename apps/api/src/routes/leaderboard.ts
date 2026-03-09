@@ -42,8 +42,13 @@ export async function leaderboardRoutes(app: FastifyInstance) {
         : 1
       const totalExpected = Math.min(daysElapsed, challenge.duration_days)
 
-      // Get Redis rankings
-      const redisRankings = await lb.getRankings(challengeId)
+      // Get Redis rankings (best-effort — fall back to DB scores if Redis is down)
+      let redisRankings: Array<{ userId: string; score: number; rank: number }> = []
+      try {
+        redisRankings = await lb.getRankings(challengeId)
+      } catch {
+        // Redis unavailable; entries will use p.total_checkins from DB
+      }
       const redisMap = new Map(redisRankings.map((r) => [r.userId, r]))
 
       // Build leaderboard entries
@@ -111,10 +116,22 @@ export async function leaderboardRoutes(app: FastifyInstance) {
     handler: async (request, reply) => {
       const { challengeId } = request.params as { challengeId: string }
 
-      const [rank, score] = await Promise.all([
-        lb.getUserRank(challengeId, request.userId),
-        lb.getUserScore(challengeId, request.userId),
-      ])
+      let rank: number | null = null
+      let score = 0
+      try {
+        ;[rank, score] = await Promise.all([
+          lb.getUserRank(challengeId, request.userId),
+          lb.getUserScore(challengeId, request.userId),
+        ])
+      } catch {
+        // Redis unavailable; fall back to DB participant data
+        const p = await prisma.challengeParticipant.findUnique({
+          where: { challenge_id_user_id: { challenge_id: challengeId, user_id: request.userId } },
+          select: { rank: true, total_checkins: true },
+        })
+        rank = p?.rank ?? null
+        score = p?.total_checkins ?? 0
+      }
 
       const total = await prisma.challengeParticipant.count({ where: { challenge_id: challengeId } })
 

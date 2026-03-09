@@ -53,14 +53,14 @@ export default function OnboardingScreen() {
       setUser(res.user as User)
       router.replace('/(tabs)')
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to create profile'
+      const msg = err instanceof ApiError ? err.message : 'Error al crear el perfil'
       Alert.alert('Error', msg)
     } finally {
       setLoading(false)
     }
   }
 
-  const usernameStatus = checking ? '...' : available === true ? '✓ Available' : available === false ? '✗ Taken' : ''
+  const usernameStatus = checking ? '...' : available === true ? '✓ Disponible' : available === false ? '✗ No disponible' : ''
   const usernameStatusColor = available === true ? Colors.success : available === false ? Colors.error : Colors.textMuted
 
   return (
@@ -71,20 +71,20 @@ export default function OnboardingScreen() {
       <View style={styles.inner}>
         <View style={styles.header}>
           <Logo size="lg" showWordmark style={styles.logo} />
-          <Text style={styles.title}>Create your profile</Text>
-          <Text style={styles.subtitle}>Your friends will see this when you compete</Text>
+          <Text style={styles.title}>Crea tu perfil</Text>
+          <Text style={styles.subtitle}>Tus amigos verán esto cuando compitas</Text>
         </View>
 
         <View style={styles.form}>
           <View>
-            <Text style={styles.label}>Username *</Text>
+            <Text style={styles.label}>Nombre de usuario *</Text>
             <TextInput
               style={[
                 styles.input,
                 available === true && styles.inputSuccess,
                 available === false && styles.inputError,
               ]}
-              placeholder="e.g. sofia_runs"
+              placeholder="ej. sofia_corre"
               placeholderTextColor={Colors.textMuted}
               value={username}
               onChangeText={handleUsernameChange}
@@ -96,15 +96,15 @@ export default function OnboardingScreen() {
             {usernameStatus ? (
               <Text style={[styles.usernameHint, { color: usernameStatusColor }]}>{usernameStatus}</Text>
             ) : (
-              <Text style={styles.usernameHint}>3-20 chars, letters/numbers/underscores only</Text>
+              <Text style={styles.usernameHint}>3-20 caracteres, solo letras/números/guiones bajos</Text>
             )}
           </View>
 
           <View>
-            <Text style={styles.label}>Display Name (optional)</Text>
+            <Text style={styles.label}>Nombre para mostrar (opcional)</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g. Sofia Chen"
+              placeholder="ej. Sofía Chen"
               placeholderTextColor={Colors.textMuted}
               value={displayName}
               onChangeText={setDisplayName}
@@ -117,7 +117,7 @@ export default function OnboardingScreen() {
             onPress={handleSubmit}
             disabled={!username || available !== true || loading}
           >
-            <Text style={styles.btnText}>{loading ? 'Creating...' : "Let's Go"}</Text>
+            <Text style={styles.btnText}>{loading ? 'Creando...' : '¡Vamos!'}</Text>
           </TouchableOpacity>
         </View>
       </View>

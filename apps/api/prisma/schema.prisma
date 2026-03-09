@@ -17,6 +17,9 @@ model User {
   avatar_url             String?
   level                  Int                    @default(1)
   xp                     Int                    @default(0)
+  streak_current         Int                    @default(0)
+  streak_longest         Int                    @default(0)
+  last_checkin_date      DateTime?              @db.Date
   timezone               String                 @default("UTC")
   created_at             DateTime               @default(now()) @db.Timestamptz(6)
   deleted_at             DateTime?              @db.Timestamptz(6)
