@@ -111,6 +111,11 @@ export async function groupRoutes(app: FastifyInstance) {
           group: {
             include: {
               _count: { select: { members: true } },
+              members: {
+                take: 5,
+                orderBy: { joined_at: 'asc' },
+                include: { user: { select: { id: true, username: true, display_name: true, avatar_url: true } } },
+              },
               challenges: {
                 where: { status: 'active' },
                 take: 1,

@@ -204,6 +204,8 @@ export const friendsApi = {
     request<{ friendship: unknown }>('/friends/request', { method: 'POST', body: JSON.stringify({ addressee_id }) }),
   getRequests: () =>
     request<{ requests: import('@doit/shared').FriendRequest[] }>('/friends/requests'),
+  getSentRequests: () =>
+    request<{ requests: import('@doit/shared').SentFriendRequest[] }>('/friends/requests/sent'),
   respond: (id: string, action: 'accept' | 'reject') =>
     request<{ friendship: unknown }>(`/friends/requests/${id}`, { method: 'PATCH', body: JSON.stringify({ action }) }),
   list: () =>

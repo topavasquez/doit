@@ -142,6 +142,26 @@ export async function friendRoutes(app: FastifyInstance) {
     },
   })
 
+  // GET /friends/requests/sent — outgoing pending requests
+  app.get('/requests/sent', {
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      const sent = await prisma.friendship.findMany({
+        where: { requester_id: request.userId, status: 'pending' },
+        include: { addressee: { select: USER_SELECT } },
+        orderBy: { created_at: 'desc' },
+      })
+
+      return reply.send({
+        requests: sent.map((r) => ({
+          id: r.id,
+          addressee: r.addressee,
+          created_at: r.created_at,
+        })),
+      })
+    },
+  })
+
   // PATCH /friends/requests/:id — accept or reject
   app.patch('/requests/:id', {
     preHandler: requireAuth,

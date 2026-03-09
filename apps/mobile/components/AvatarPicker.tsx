@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   View, Text, TouchableOpacity, Image, ActivityIndicator,
-  Alert, StyleSheet, ActionSheetIOS, Platform,
+  Alert, StyleSheet,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
@@ -19,50 +19,39 @@ export function AvatarPicker({ size = 90, initial, currentUrl, onUpload }: Props
   const [uploading, setUploading] = useState(false)
   const [localUri, setLocalUri] = useState<string | null>(currentUrl ?? null)
 
-  async function pick(source: 'camera' | 'library') {
-    let result: ImagePicker.ImagePickerResult
-
-    if (source === 'camera') {
-      const perm = await ImagePicker.requestCameraPermissionsAsync()
-      if (!perm.granted) { Alert.alert('Permiso requerido', 'Se necesita acceso a la cámara.'); return }
-      result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8, base64: true,
-      })
-    } else {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
-      if (!perm.granted) { Alert.alert('Permiso requerido', 'Se necesita acceso a la galería.'); return }
-      result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8, base64: true,
-      })
+  async function handlePress() {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (!perm.granted) {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a la galería para cambiar la foto.')
+      return
     }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+      base64: true,
+    })
 
     if (result.canceled || !result.assets[0]) return
     const asset = result.assets[0]
+
     setLocalUri(asset.uri)
     setUploading(true)
     try {
-      const url = await uploadAvatarPhoto(asset.uri, asset.mimeType ?? 'image/jpeg', asset.base64 ?? undefined)
+      const url = await uploadAvatarPhoto(
+        asset.uri,
+        asset.mimeType ?? 'image/jpeg',
+        asset.base64 ?? undefined,
+      )
       onUpload(url)
-    } catch {
-      Alert.alert('Error', 'No se pudo subir la foto')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error desconocido'
+      Alert.alert('Error al subir', msg)
       setLocalUri(currentUrl ?? null)
     } finally {
       setUploading(false)
-    }
-  }
-
-  function handlePress() {
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options: ['Cancelar', 'Cámara', 'Galería'], cancelButtonIndex: 0 },
-        (i) => { if (i === 1) pick('camera'); else if (i === 2) pick('library') },
-      )
-    } else {
-      Alert.alert('Foto de perfil', 'Selecciona una opción', [
-        { text: 'Cámara', onPress: () => pick('camera') },
-        { text: 'Galería', onPress: () => pick('library') },
-        { text: 'Cancelar', style: 'cancel' },
-      ])
     }
   }
 

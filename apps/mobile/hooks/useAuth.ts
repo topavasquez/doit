@@ -16,10 +16,12 @@ export function useAuthGuard() {
     session,
     user,
     isLoading,
+    isRecovery,
     setSession,
     setSupabaseUser,
     setUser,
     setLoading,
+    setIsRecovery,
   } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
@@ -47,6 +49,14 @@ export function useAuthGuard() {
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "INITIAL_SESSION") return;
 
+      if (event === "PASSWORD_RECOVERY") {
+        setSession(session);
+        setSupabaseUser(session?.user ?? null);
+        setIsRecovery(true);
+        setLoading(false);
+        return;
+      }
+
       setSession(session);
       setSupabaseUser(session?.user ?? null);
 
@@ -72,11 +82,18 @@ export function useAuthGuard() {
 
     const inAuthGroup = segments[0] === "(auth)";
     const inOnboarding = segments[1] === "onboarding";
+    const inResetPassword = segments[1] === "reset-password";
     const inIntro = segments[0] === "intro";
     const isAnonymous = session?.user?.is_anonymous === true;
 
     // intro.tsx manages its own routing — don't interfere
     if (inIntro) return;
+
+    // Recovery flow takes priority — always redirect to reset screen
+    if (isRecovery) {
+      if (!inResetPassword) router.replace("/(auth)/reset-password");
+      return;
+    }
 
     if (!session) {
       if (!inAuthGroup) router.replace("/(auth)/sign-in");
@@ -87,5 +104,5 @@ export function useAuthGuard() {
     } else {
       if (inAuthGroup) router.replace("/(tabs)");
     }
-  }, [session, user, isLoading, segments]);
+  }, [session, user, isLoading, isRecovery, segments]);
 }

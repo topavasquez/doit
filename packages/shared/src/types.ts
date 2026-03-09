@@ -177,6 +177,12 @@ export interface FriendRequest {
   created_at: string
 }
 
+export interface SentFriendRequest {
+  id: string
+  addressee: Friend
+  created_at: string
+}
+
 export interface PaginatedResponse<T> {
   data: T[]
   total: number

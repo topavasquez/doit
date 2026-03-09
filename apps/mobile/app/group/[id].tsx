@@ -127,15 +127,20 @@ export default function GroupScreen() {
           <View style={styles.membersWrap}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.membersScroll}>
               {group.members?.map((m) => {
-                const username = (m.user as { username: string })?.username ?? '?'
+                const u = m.user as { username: string; display_name?: string | null; avatar_url?: string | null } | undefined
+                const name = u?.display_name ?? u?.username ?? '?'
                 const isAdmin = m.role === 'admin'
                 return (
                   <View key={m.id} style={styles.memberChip}>
-                    <View style={[styles.memberAvatar, isAdmin && { backgroundColor: groupColor }]}>
-                      <Text style={styles.memberAvatarText}>{username[0]?.toUpperCase()}</Text>
-                    </View>
+                    {u?.avatar_url ? (
+                      <Image source={{ uri: u.avatar_url }} style={[styles.memberAvatar, styles.memberAvatarImg]} />
+                    ) : (
+                      <View style={[styles.memberAvatar, isAdmin && { backgroundColor: groupColor }]}>
+                        <Text style={styles.memberAvatarText}>{name[0]?.toUpperCase()}</Text>
+                      </View>
+                    )}
                     <View>
-                      <Text style={styles.memberName} numberOfLines={1}>{username}</Text>
+                      <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
                       {isAdmin && <Text style={[styles.adminTag, { color: groupColor }]}>Admin</Text>}
                     </View>
                   </View>
@@ -243,9 +248,13 @@ export default function GroupScreen() {
                 return (
                   <View key={c.id} style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
                     {!isMe && (
-                      <View style={styles.bubbleAvatar}>
-                        <Text style={styles.bubbleAvatarText}>{initial}</Text>
-                      </View>
+                      c.user?.avatar_url ? (
+                        <Image source={{ uri: c.user.avatar_url }} style={styles.bubbleAvatar} />
+                      ) : (
+                        <View style={[styles.bubbleAvatar, styles.bubbleAvatarPlaceholder]}>
+                          <Text style={styles.bubbleAvatarText}>{initial}</Text>
+                        </View>
+                      )
                     )}
                     <View style={[styles.bubbleBody, isMe ? styles.bubbleBodyMe : styles.bubbleBodyThem]}>
                       {!isMe && (
@@ -437,14 +446,12 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   memberAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 28, height: 28, borderRadius: 14,
     backgroundColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
-  memberAvatarText: { color: '#000', fontWeight: '700', fontSize: 12 },
+  memberAvatarImg: { backgroundColor: 'transparent' },
+  memberAvatarText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   memberName: { color: Colors.text, fontSize: 13, fontWeight: '600', maxWidth: 70 },
   adminTag: { fontSize: 10, fontWeight: '700', marginTop: 1 },
 
@@ -510,14 +517,12 @@ const styles = StyleSheet.create({
   bubbleThem: { justifyContent: 'flex-start' },
 
   bubbleAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 32, height: 32, borderRadius: 16,
+    marginBottom: 4, flexShrink: 0,
+  },
+  bubbleAvatarPlaceholder: {
     backgroundColor: Colors.primary + '30',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-    flexShrink: 0,
+    alignItems: 'center', justifyContent: 'center',
   },
   bubbleAvatarText: { color: Colors.primary, fontWeight: '800', fontSize: 13 },
 
