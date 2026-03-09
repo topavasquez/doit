@@ -7,6 +7,7 @@ const updateUserSchema = z.object({
   display_name: z.string().min(1).max(50).optional(),
   avatar_url: z.string().url().optional().nullable(),
   timezone: z.string().optional(),
+  username: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores').optional(),
 })
 
 export async function userRoutes(app: FastifyInstance) {
@@ -88,6 +89,16 @@ export async function userRoutes(app: FastifyInstance) {
           error: 'Bad Request',
           message: parsed.error.errors[0].message,
         })
+      }
+
+      if (parsed.data.username) {
+        const conflict = await prisma.user.findFirst({
+          where: { username: parsed.data.username, NOT: { id } },
+          select: { id: true },
+        })
+        if (conflict) {
+          return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Username already taken' })
+        }
       }
 
       const user = await prisma.user.update({

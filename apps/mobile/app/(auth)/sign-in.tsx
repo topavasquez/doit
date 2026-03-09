@@ -3,13 +3,15 @@ import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native'
-import { makeRedirectUri } from 'expo-linking'
+import * as Linking from 'expo-linking'
 import { useLocalSearchParams } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { supabase } from '../../lib/supabase'
 import { Colors } from '../../constants/colors'
 
-type Step = 'method' | 'register' | 'login' | 'forgot' | 'check-email'
+type Step = 'method' | 'register' | 'login' | 'forgot' | 'verify-otp' | 'verify-recovery'
+
+type OtpOrigin = 'signup' | 'recovery'
 
 export default function SignInScreen() {
   const { register } = useLocalSearchParams<{ register?: string }>()
@@ -18,6 +20,8 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [otpCode, setOtpCode] = useState('')
+  const [otpOrigin, setOtpOrigin] = useState<OtpOrigin>('signup')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
@@ -44,8 +48,10 @@ export default function SignInScreen() {
       })
       if (error) throw error
       if (!data.session) {
-        // Email confirmation required
-        setStep('check-email')
+        // Email OTP confirmation required
+        setOtpOrigin('signup')
+        setOtpCode('')
+        setStep('verify-otp')
       }
       // If session exists, onAuthStateChange in useAuthGuard handles routing
     } catch (err: unknown) {
@@ -80,9 +86,49 @@ export default function SignInScreen() {
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase())
       if (error) throw error
-      setStep('check-email')
+      setOtpOrigin('recovery')
+      setOtpCode('')
+      setStep('verify-recovery')
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Error al enviar el correo')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleVerifyOtp() {
+    if (!otpCode.trim()) return
+    clearError()
+    setLoading(true)
+    try {
+      const type = otpOrigin === 'signup' ? 'signup' : 'recovery'
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim().toLowerCase(),
+        token: otpCode.trim(),
+        type,
+      })
+      if (error) throw error
+      // onAuthStateChange in useAuthGuard handles routing after verification
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Código incorrecto o expirado')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleResendOtp() {
+    clearError()
+    setLoading(true)
+    try {
+      if (otpOrigin === 'signup') {
+        const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim().toLowerCase() })
+        if (error) throw error
+      } else {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase())
+        if (error) throw error
+      }
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Error al reenviar el código')
     } finally {
       setLoading(false)
     }
@@ -92,7 +138,7 @@ export default function SignInScreen() {
     clearError()
     setLoading(true)
     try {
-      const redirectTo = makeRedirectUri({ scheme: 'doit', path: '/(tabs)' })
+      const redirectTo = Linking.createURL('/(tabs)')
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo },
@@ -283,7 +329,7 @@ export default function SignInScreen() {
               <Text style={styles.backText}>← Volver</Text>
             </TouchableOpacity>
             <Text style={styles.cardTitle}>Recuperar contraseña</Text>
-            <Text style={styles.cardSubtitle}>Te enviaremos un enlace a tu correo</Text>
+            <Text style={styles.cardSubtitle}>Te enviaremos un código de 6 dígitos a tu correo</Text>
 
             {errorMsg && <ErrorBox msg={errorMsg} />}
 
@@ -303,22 +349,50 @@ export default function SignInScreen() {
               onPress={handleForgotPassword}
               disabled={loading || !email.trim()}
             >
-              <Text style={styles.primaryBtnText}>{loading ? 'Enviando...' : 'Enviar enlace'}</Text>
+              <Text style={styles.primaryBtnText}>{loading ? 'Enviando...' : 'Enviar código'}</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* ── Check email confirmation ── */}
-        {step === 'check-email' && (
+        {/* ── OTP verification (signup & recovery) ── */}
+        {(step === 'verify-otp' || step === 'verify-recovery') && (
           <View style={styles.card}>
             <Text style={styles.checkEmailIcon}>📬</Text>
-            <Text style={styles.cardTitle}>Revisa tu correo</Text>
+            <Text style={styles.cardTitle}>
+              {step === 'verify-otp' ? 'Verifica tu correo' : 'Recuperar contraseña'}
+            </Text>
             <Text style={styles.cardSubtitle}>
-              Te enviamos un enlace a{'\n'}
+              Te enviamos un código de 6 dígitos a{'\n'}
               <Text style={styles.emailHighlight}>{email}</Text>
             </Text>
-            <TouchableOpacity onPress={() => setStep('login')} style={styles.outlineBtn}>
-              <Text style={styles.outlineBtnText}>Volver a iniciar sesión</Text>
+
+            {errorMsg && <ErrorBox msg={errorMsg} />}
+
+            <TextInput
+              style={styles.input}
+              placeholder="Código de verificación"
+              placeholderTextColor={Colors.textMuted}
+              value={otpCode}
+              onChangeText={(v) => { setOtpCode(v); clearError() }}
+              keyboardType="number-pad"
+              autoFocus
+              maxLength={6}
+            />
+
+            <TouchableOpacity
+              style={[styles.primaryBtn, (loading || otpCode.trim().length < 6) && styles.btnDisabled]}
+              onPress={handleVerifyOtp}
+              disabled={loading || otpCode.trim().length < 6}
+            >
+              <Text style={styles.primaryBtnText}>{loading ? 'Verificando...' : 'Verificar'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleResendOtp} disabled={loading} style={styles.forgotBtn}>
+              <Text style={styles.forgotText}>Reenviar código</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => { clearError(); setStep(step === 'verify-otp' ? 'register' : 'forgot') }} style={styles.backBtn}>
+              <Text style={styles.backText}>← Volver</Text>
             </TouchableOpacity>
           </View>
         )}

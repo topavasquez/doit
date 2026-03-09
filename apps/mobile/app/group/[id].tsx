@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Share, Alert, Image, RefreshControl, ActivityIndicator } from 'react-native'
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Share, Alert, Image, RefreshControl, ActivityIndicator, Modal, FlatList } from 'react-native'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { groupsApi, challengesApi } from '../../lib/api'
+import { groupsApi, challengesApi, friendsApi } from '../../lib/api'
 import { ChallengeCard } from '../../components/ChallengeCard'
 import { Colors } from '../../constants/colors'
 import { useAuth } from '../../hooks/useAuth'
@@ -26,6 +26,8 @@ export default function GroupScreen() {
   const { user } = useAuth()
   const qc = useQueryClient()
   const [activeTab, setActiveTab] = useState<GroupTab>(initialTab === 'feed' ? 'feed' : 'challenges')
+  const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set())
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['group', id],
@@ -43,10 +45,15 @@ export default function GroupScreen() {
   const startMutation = useMutation({
     mutationFn: (challengeId: string) => challengesApi.start(challengeId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['group', id] })
-      Alert.alert('¡Reto Iniciado!', 'Todos los participantes han sido notificados. ¡A jugar!')
+      refetch()
     },
     onError: (err: Error) => Alert.alert('Error', err.message),
+  })
+
+  const { data: friendsData } = useQuery({
+    queryKey: ['friends'],
+    queryFn: () => friendsApi.list(),
+    enabled: inviteModalOpen,
   })
 
   const group = data?.group as (Group & { members: GroupMember[]; challenges: Challenge[] }) | undefined
@@ -56,9 +63,21 @@ export default function GroupScreen() {
   if (isLoading || !group) {
     return (
       <View style={styles.loading}>
-        <Text style={styles.loadingText}>Loading...</Text>
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     )
+  }
+
+  const memberIds = new Set((group.members ?? []).map((m) => m.user_id))
+  const friendsNotInGroup = (friendsData?.friends ?? []).filter((f) => !memberIds.has(f.id))
+
+  async function handleInviteFriend(friendId: string) {
+    try {
+      await groupsApi.inviteFriend(group!.id, friendId)
+      setInvitedIds((prev) => new Set([...prev, friendId]))
+    } catch {
+      Alert.alert('Error', 'No se pudo enviar la invitación')
+    }
   }
 
   const groupColor = pickColor(group.name)
@@ -98,7 +117,7 @@ export default function GroupScreen() {
               <Text style={styles.groupName}>{group.name}</Text>
               <Text style={styles.memberCountText}>{group.members?.length ?? 0} miembros</Text>
             </View>
-            <TouchableOpacity style={[styles.inviteBtn, { backgroundColor: groupColor + '20', borderColor: groupColor + '40' }]} onPress={handleShare}>
+            <TouchableOpacity style={[styles.inviteBtn, { backgroundColor: groupColor + '20', borderColor: groupColor + '40' }]} onPress={() => setInviteModalOpen(true)}>
               <MaterialCommunityIcons name="account-plus-outline" size={16} color={groupColor} />
               <Text style={[styles.inviteBtnText, { color: groupColor }]}>Invitar</Text>
             </TouchableOpacity>
@@ -254,6 +273,66 @@ export default function GroupScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Invite modal */}
+      <Modal visible={inviteModalOpen} transparent animationType="slide" onRequestClose={() => setInviteModalOpen(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setInviteModalOpen(false)} />
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle}>Invitar al grupo</Text>
+
+          {/* Share link option */}
+          <TouchableOpacity style={styles.shareLinkBtn} onPress={() => { setInviteModalOpen(false); handleShare() }}>
+            <View style={styles.shareLinkIcon}>
+              <MaterialCommunityIcons name="link-variant" size={20} color={Colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.shareLinkTitle}>Compartir enlace</Text>
+              <Text style={styles.shareLinkSub}>Cualquiera con el enlace puede unirse</Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textMuted} />
+          </TouchableOpacity>
+
+          {/* Friends list */}
+          <Text style={styles.modalSection}>Tus amigos</Text>
+          {friendsNotInGroup.length === 0 ? (
+            <Text style={styles.modalEmpty}>
+              {(friendsData?.friends ?? []).length === 0
+                ? 'Aún no tienes amigos en la app'
+                : 'Todos tus amigos ya están en este grupo'}
+            </Text>
+          ) : (
+            <FlatList
+              data={friendsNotInGroup}
+              keyExtractor={(f) => f.id}
+              style={styles.modalList}
+              renderItem={({ item }) => {
+                const alreadyInvited = invitedIds.has(item.id)
+                return (
+                  <View style={styles.modalFriendRow}>
+                    <View style={styles.modalAvatar}>
+                      <Text style={styles.modalAvatarText}>{(item.display_name ?? item.username)[0].toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modalFriendName}>{item.display_name ?? item.username}</Text>
+                      <Text style={styles.modalFriendUser}>@{item.username}</Text>
+                    </View>
+                    {alreadyInvited ? (
+                      <View style={styles.invitedBadge}>
+                        <Text style={styles.invitedBadgeText}>Enviado</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity style={styles.inviteFriendBtn} onPress={() => handleInviteFriend(item.id)}>
+                        <Text style={styles.inviteFriendBtnText}>Invitar</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )
+              }}
+            />
+          )}
+        </View>
+      </Modal>
     </>
   )
 }
@@ -262,7 +341,60 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { padding: 20, paddingBottom: 60 },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background },
-  loadingText: { color: Colors.textSecondary },
+
+  // Invite modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  modalSheet: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: 40,
+    maxHeight: '70%',
+  },
+  modalHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.border, alignSelf: 'center', marginBottom: 16 },
+  modalTitle: { color: Colors.text, fontSize: 18, fontWeight: '800', marginBottom: 16 },
+  modalSection: { color: Colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 10 },
+  modalEmpty: { color: Colors.textMuted, fontSize: 14, textAlign: 'center', paddingVertical: 16 },
+  modalList: { maxHeight: 280 },
+  shareLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  shareLinkIcon: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: Colors.primary + '20',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  shareLinkTitle: { color: Colors.text, fontWeight: '700', fontSize: 15 },
+  shareLinkSub: { color: Colors.textMuted, fontSize: 12, marginTop: 2 },
+  modalFriendRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.border,
+  },
+  modalAvatar: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: Colors.primary + '25', alignItems: 'center', justifyContent: 'center',
+  },
+  modalAvatarText: { color: Colors.primary, fontWeight: '800', fontSize: 16 },
+  modalFriendName: { color: Colors.text, fontWeight: '700', fontSize: 14 },
+  modalFriendUser: { color: Colors.textMuted, fontSize: 12 },
+  inviteFriendBtn: {
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 7,
+    backgroundColor: Colors.primary,
+  },
+  inviteFriendBtnText: { color: '#000', fontWeight: '700', fontSize: 13 },
+  invitedBadge: {
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: Colors.surfaceElevated, borderWidth: 1, borderColor: Colors.border,
+  },
+  invitedBadgeText: { color: Colors.textMuted, fontWeight: '600', fontSize: 12 },
 
   heroCard: {
     backgroundColor: Colors.surface,

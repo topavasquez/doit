@@ -215,6 +215,53 @@ export async function groupRoutes(app: FastifyInstance) {
   })
 
   // GET /groups/:id/feed — all checkins across active challenges in this group
+  // POST /groups/:id/invite-friend — send in-app invite notification to a friend
+  app.post('/:id/invite-friend', {
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const body = request.body as { friend_id?: string }
+
+      if (!body.friend_id) {
+        return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'friend_id required' })
+      }
+
+      // Verify caller is a member
+      const membership = await prisma.groupMember.findUnique({
+        where: { group_id_user_id: { group_id: id, user_id: request.userId } },
+      })
+      if (!membership) {
+        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Not a member of this group' })
+      }
+
+      // Verify friend exists
+      const friend = await prisma.user.findUnique({ where: { id: body.friend_id, deleted_at: null }, select: { id: true } })
+      if (!friend) {
+        return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'User not found' })
+      }
+
+      // Don't invite if already a member
+      const alreadyMember = await prisma.groupMember.findUnique({
+        where: { group_id_user_id: { group_id: id, user_id: body.friend_id } },
+      })
+      if (alreadyMember) {
+        return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'User is already in the group' })
+      }
+
+      const group = await prisma.group.findUnique({ where: { id }, select: { name: true, invite_code: true } })
+
+      await prisma.notification.create({
+        data: {
+          user_id: body.friend_id,
+          type: 'group_invite',
+          payload: { group_id: id, group_name: group?.name, invite_code: group?.invite_code, inviter_id: request.userId },
+        },
+      })
+
+      return reply.status(201).send({ ok: true })
+    },
+  })
+
   app.get('/:id/feed', {
     preHandler: requireAuth,
     handler: async (request, reply) => {

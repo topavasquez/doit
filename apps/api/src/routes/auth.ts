@@ -8,6 +8,7 @@ const createProfileSchema = z.object({
   username: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
   display_name: z.string().min(1).max(50).optional(),
   timezone: z.string().optional(),
+  avatar_url: z.string().url().optional().nullable(),
 })
 
 export async function authRoutes(app: FastifyInstance) {
@@ -56,6 +57,7 @@ export async function authRoutes(app: FastifyInstance) {
           username: parsed.data.username,
           display_name: parsed.data.display_name ?? null,
           timezone: parsed.data.timezone ?? 'UTC',
+          avatar_url: parsed.data.avatar_url ?? null,
         },
       })
 

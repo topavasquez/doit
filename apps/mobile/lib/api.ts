@@ -44,7 +44,7 @@ export class ApiError extends Error {
 
 // Auth
 export const authApi = {
-  syncUser: (body: { username: string; display_name?: string; timezone?: string }) =>
+  syncUser: (body: { username: string; display_name?: string; timezone?: string; avatar_url?: string | null }) =>
     request<{ user: unknown; created: boolean }>('/auth/sync-user', { method: 'POST', body: JSON.stringify(body) }),
 
   checkUsername: (username: string) =>
@@ -77,6 +77,8 @@ export const groupsApi = {
     request<void>(`/groups/${groupId}/members/${userId}`, { method: 'DELETE' }),
   getFeed: (id: string, limit = 30, offset = 0) =>
     request<{ checkins: unknown[]; total: number }>(`/groups/${id}/feed?limit=${limit}&offset=${offset}`),
+  inviteFriend: (groupId: string, friendId: string) =>
+    request<void>(`/groups/${groupId}/invite-friend`, { method: 'POST', body: JSON.stringify({ friend_id: friendId }) }),
 }
 
 // Challenges
@@ -101,6 +103,42 @@ export async function uploadCheckinPhoto(uri: string, mimeType = 'image/jpeg', b
     if (error) throw new Error(error.message)
   } else {
     // Fallback: FormData REST upload
+    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
+    const formData = new FormData()
+    formData.append('file', { uri, name: filename, type: mimeType } as any)
+    const res = await fetch(
+      `${supabaseUrl}/storage/v1/object/checkin-photos/${filename}`,
+      { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` }, body: formData },
+    )
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message ?? `Upload failed (${res.status})`)
+    }
+  }
+
+  const { data } = supabase.storage.from('checkin-photos').getPublicUrl(filename)
+  return data.publicUrl
+}
+
+export async function uploadAvatarPhoto(uri: string, mimeType = 'image/jpeg', base64?: string): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  const extMatch = uri.split('?')[0].match(/\.([a-zA-Z]{2,5})$/)
+  const ext = extMatch ? extMatch[1].toLowerCase() : (mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg')
+  const filename = `avatars/${session.user.id}/${Date.now()}.${ext}`
+
+  if (base64) {
+    const binaryStr = atob(base64)
+    const bytes = new Uint8Array(binaryStr.length)
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i)
+    }
+    const { error } = await supabase.storage
+      .from('checkin-photos')
+      .upload(filename, bytes, { contentType: mimeType, upsert: true })
+    if (error) throw new Error(error.message)
+  } else {
     const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
     const formData = new FormData()
     formData.append('file', { uri, name: filename, type: mimeType } as any)
@@ -156,6 +194,22 @@ export const leaderboardApi = {
     request<{ leaderboard: unknown[]; ghost_mode: boolean; days_elapsed: number; total_expected: number }>(
       `/leaderboard/${challengeId}`
     ),
+}
+
+// Friends
+export const friendsApi = {
+  search: (q: string) =>
+    request<{ users: import('@doit/shared').UserSearchResult[] }>(`/friends/search?q=${encodeURIComponent(q)}`),
+  sendRequest: (addressee_id: string) =>
+    request<{ friendship: unknown }>('/friends/request', { method: 'POST', body: JSON.stringify({ addressee_id }) }),
+  getRequests: () =>
+    request<{ requests: import('@doit/shared').FriendRequest[] }>('/friends/requests'),
+  respond: (id: string, action: 'accept' | 'reject') =>
+    request<{ friendship: unknown }>(`/friends/requests/${id}`, { method: 'PATCH', body: JSON.stringify({ action }) }),
+  list: () =>
+    request<{ friends: import('@doit/shared').Friend[]; count: number }>('/friends'),
+  getCount: (userId: string) =>
+    request<{ count: number }>(`/friends/count/${userId}`),
 }
 
 // Notifications

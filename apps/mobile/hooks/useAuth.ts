@@ -45,6 +45,7 @@ export function useAuthGuard() {
         return
       }
 
+      setLoading(true)
       authApi.me()
         .then((res) => setUser(res.user as User))
         .catch(() => setUser(null))
@@ -60,11 +61,10 @@ export function useAuthGuard() {
     const inAuthGroup = segments[0] === '(auth)'
     const inOnboarding = segments[1] === 'onboarding'
     const inIntro = segments[0] === 'intro'
-    const inIndex = segments.length === 0
     const isAnonymous = session?.user?.is_anonymous === true
 
-    // index.tsx and intro.tsx manage their own routing — don't interfere
-    if (inIndex || inIntro) return
+    // intro.tsx manages its own routing — don't interfere
+    if (inIntro) return
 
     if (!session) {
       if (!inAuthGroup) router.replace('/(auth)/sign-in')

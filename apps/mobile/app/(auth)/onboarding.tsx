@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, Alert,
+  StyleSheet, KeyboardAvoidingView, Platform, Alert, ScrollView,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { authApi, ApiError } from '../../lib/api'
 import { useAuthStore } from '../../store/auth'
 import { Colors } from '../../constants/colors'
 import { Logo } from '../../components/ui/Logo'
+import { AvatarPicker } from '../../components/AvatarPicker'
 import type { User } from '@doit/shared'
 
 export default function OnboardingScreen() {
@@ -15,6 +16,7 @@ export default function OnboardingScreen() {
   const setUser = useAuthStore((s) => s.setUser)
   const [username, setUsername] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const [available, setAvailable] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(false)
@@ -49,6 +51,7 @@ export default function OnboardingScreen() {
         username,
         display_name: displayName || username,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        avatar_url: avatarUrl,
       })
       setUser(res.user as User)
       router.replace('/(tabs)')
@@ -60,6 +63,7 @@ export default function OnboardingScreen() {
     }
   }
 
+  const initial = (displayName || username || 'U')[0].toUpperCase()
   const usernameStatus = checking ? '...' : available === true ? '✓ Disponible' : available === false ? '✗ No disponible' : ''
   const usernameStatusColor = available === true ? Colors.success : available === false ? Colors.error : Colors.textMuted
 
@@ -68,11 +72,22 @@ export default function OnboardingScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.inner}>
+      <ScrollView contentContainerStyle={styles.inner} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Logo size="lg" showWordmark style={styles.logo} />
           <Text style={styles.title}>Crea tu perfil</Text>
           <Text style={styles.subtitle}>Tus amigos verán esto cuando compitas</Text>
+        </View>
+
+        {/* Avatar picker */}
+        <View style={styles.avatarSection}>
+          <AvatarPicker
+            size={100}
+            initial={initial}
+            currentUrl={avatarUrl}
+            onUpload={setAvatarUrl}
+          />
+          <Text style={styles.avatarHint}>Foto de perfil (opcional)</Text>
         </View>
 
         <View style={styles.form}>
@@ -91,7 +106,6 @@ export default function OnboardingScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               maxLength={20}
-              autoFocus
             />
             {usernameStatus ? (
               <Text style={[styles.usernameHint, { color: usernameStatusColor }]}>{usernameStatus}</Text>
@@ -120,18 +134,20 @@ export default function OnboardingScreen() {
             <Text style={styles.btnText}>{loading ? 'Creando...' : '¡Vamos!'}</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   )
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  inner: { flex: 1, padding: 24, justifyContent: 'center', gap: 32 },
+  inner: { padding: 24, justifyContent: 'center', gap: 28, flexGrow: 1 },
   header: { gap: 12 },
   logo: { marginBottom: 8 },
   title: { color: Colors.text, fontSize: 28, fontWeight: '900' },
   subtitle: { color: Colors.textSecondary, fontSize: 16, lineHeight: 22 },
+  avatarSection: { alignItems: 'center', gap: 10 },
+  avatarHint: { color: Colors.textMuted, fontSize: 13 },
   form: { gap: 20 },
   label: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   input: {

@@ -10,7 +10,7 @@ datasource db {
 
 model User {
   id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  phone                  String?                @unique
+  phone                  String?
   email                  String?                @unique
   username               String                 @unique
   display_name           String?
@@ -30,8 +30,27 @@ model User {
   groups_created         Group[]
   leaderboard_snapshots  LeaderboardSnapshot[]
   notifications          Notification[]
+  friendships_sent       Friendship[]           @relation("FriendshipRequester")
+  friendships_received   Friendship[]           @relation("FriendshipAddressee")
 
   @@map("users")
+}
+
+model Friendship {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requester_id String   @db.Uuid
+  addressee_id String   @db.Uuid
+  status       String   @default("pending")
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @updatedAt @db.Timestamptz(6)
+
+  requester User @relation("FriendshipRequester", fields: [requester_id], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addressee_id], references: [id], onDelete: Cascade)
+
+  @@unique([requester_id, addressee_id])
+  @@index([addressee_id, status])
+  @@index([requester_id, status])
+  @@map("friendships")
 }
 
 model Group {

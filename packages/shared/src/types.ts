@@ -153,6 +153,30 @@ export interface ApiError {
   message: string
 }
 
+export type FriendshipStatus = 'none' | 'pending_sent' | 'pending_received' | 'accepted'
+
+export interface UserSearchResult {
+  id: string
+  username: string
+  display_name?: string | null
+  avatar_url?: string | null
+  friendship_status: FriendshipStatus
+  friendship_id?: string | null
+}
+
+export interface Friend {
+  id: string
+  username: string
+  display_name?: string | null
+  avatar_url?: string | null
+}
+
+export interface FriendRequest {
+  id: string
+  requester: Friend
+  created_at: string
+}
+
 export interface PaginatedResponse<T> {
   data: T[]
   total: number

@@ -42,6 +42,18 @@ function RootLayoutNav() {
         name="challenge/create"
         options={{ title: 'New Challenge', headerBackTitle: 'Back', presentation: 'modal' }}
       />
+      <Stack.Screen
+        name="friends/index"
+        options={{ title: 'Amigos', headerBackTitle: 'Perfil' }}
+      />
+      <Stack.Screen
+        name="friends/search"
+        options={{ title: 'Buscar Amigos', headerBackTitle: 'Amigos' }}
+      />
+      <Stack.Screen
+        name="user/[id]"
+        options={{ title: 'Perfil', headerBackTitle: 'Atrás' }}
+      />
     </Stack>
   )
 }

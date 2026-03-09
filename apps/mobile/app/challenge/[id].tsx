@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Image } from 'react-native'
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Image, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { challengesApi, checkinsApi, leaderboardApi } from '../../lib/api'
@@ -79,7 +79,7 @@ export default function ChallengeScreen() {
   if (isLoading || !challenge) {
     return (
       <View style={styles.loading}>
-        <Text style={styles.loadingText}>Cargando reto...</Text>
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     )
   }

@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Dimensions, FlatList, Animated, ListRenderItemInfo,
+  Animated, useWindowDimensions,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
@@ -11,8 +11,6 @@ import { Colors } from '../constants/colors'
 import { Logo } from '../components/ui/Logo'
 import { useAuthStore } from '../store/auth'
 import { INTRO_STORAGE_KEY } from '../hooks/useAuth'
-
-const { width: SCREEN_W } = Dimensions.get('window')
 
 // ─── Slide definitions ────────────────────────────────────────────────────────
 
@@ -64,53 +62,19 @@ const SLIDES: Slide[] = [
   },
 ]
 
-// ─── Individual slide ─────────────────────────────────────────────────────────
-
-function SlideView({ slide }: { slide: Slide }) {
-  return (
-    <View style={[slideStyles.container, { width: SCREEN_W }]}>
-      {/* Illustration area */}
-      <View style={slideStyles.illustrationArea}>
-        {/* Outer glow ring */}
-        <View style={[slideStyles.glowOuter, { backgroundColor: slide.color + '12' }]} />
-        <View style={[slideStyles.glowMiddle, { backgroundColor: slide.color + '20' }]} />
-
-        {/* Icon container */}
-        <View style={[slideStyles.iconWrap, { backgroundColor: slide.color + '22', borderColor: slide.color + '44' }]}>
-          <MaterialCommunityIcons name={slide.icon} size={64} color={slide.color} />
-        </View>
-
-        {/* Logo badge on first slide */}
-        {slide.showLogo && (
-          <View style={slideStyles.logoBadge}>
-            <Logo size="sm" showWordmark />
-          </View>
-        )}
-      </View>
-
-      {/* Text area */}
-      <View style={slideStyles.textArea}>
-        <View style={[slideStyles.titleAccent, { backgroundColor: slide.color }]} />
-        <Text style={slideStyles.title}>{slide.title}</Text>
-        <Text style={slideStyles.description}>{slide.description}</Text>
-      </View>
-    </View>
-  )
-}
-
 // ─── Dot indicator ────────────────────────────────────────────────────────────
 
 function Dots({ total, current, color }: { total: number; current: number; color: string }) {
   return (
     <View style={dotStyles.row}>
       {Array.from({ length: total }).map((_, i) => (
-        <View
+        <Animated.View
           key={i}
           style={[
             dotStyles.dot,
             i === current
-              ? [dotStyles.dotActive, { backgroundColor: color, width: 24 }]
-              : { backgroundColor: Colors.border },
+              ? { backgroundColor: color, width: 24 }
+              : { backgroundColor: Colors.border, width: 6 },
           ]}
         />
       ))}
@@ -122,19 +86,69 @@ function Dots({ total, current, color }: { total: number; current: number; color
 
 export default function IntroScreen() {
   const router = useRouter()
+  const { height: SCREEN_H } = useWindowDimensions()
   const { session, user, setHasSeenIntro } = useAuthStore()
   const [currentIndex, setCurrentIndex] = useState(0)
-  const listRef = useRef<FlatList<Slide>>(null)
+
+  // Transition animations
+  const contentOpacity = useRef(new Animated.Value(1)).current
+  const contentTranslateY = useRef(new Animated.Value(0)).current
+
+  // Icon animations
+  const iconScale = useRef(new Animated.Value(1)).current
+  const iconRotate = useRef(new Animated.Value(0)).current
+  const glowScale = useRef(new Animated.Value(1)).current
+
+  // Button animation
   const buttonScale = useRef(new Animated.Value(1)).current
 
+  const slide = SLIDES[currentIndex]
   const isLast = currentIndex === SLIDES.length - 1
-  const currentSlide = SLIDES[currentIndex]
+
+  // Restart icon animations whenever slide changes
+  useEffect(() => {
+    iconScale.setValue(0.7)
+    iconRotate.setValue(-0.05)
+
+    const entranceAnim = Animated.parallel([
+      Animated.spring(iconScale, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 12 }),
+      Animated.spring(iconRotate, { toValue: 0, useNativeDriver: true, speed: 14, bounciness: 8 }),
+    ])
+
+    entranceAnim.start(() => {
+      // Continuous gentle pulse after entrance
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowScale, { toValue: 1.12, duration: 1800, useNativeDriver: true }),
+          Animated.timing(glowScale, { toValue: 1, duration: 1800, useNativeDriver: true }),
+        ])
+      )
+      pulse.start()
+    })
+
+    return () => {
+      glowScale.stopAnimation()
+      glowScale.setValue(1)
+    }
+  }, [currentIndex])
+
+  function goToSlide(index: number) {
+    Animated.parallel([
+      Animated.timing(contentOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+      Animated.timing(contentTranslateY, { toValue: -16, duration: 180, useNativeDriver: true }),
+    ]).start(() => {
+      setCurrentIndex(index)
+      contentTranslateY.setValue(24)
+      Animated.parallel([
+        Animated.timing(contentOpacity, { toValue: 1, duration: 280, useNativeDriver: true }),
+        Animated.spring(contentTranslateY, { toValue: 0, useNativeDriver: true, speed: 18, bounciness: 6 }),
+      ]).start()
+    })
+  }
 
   async function handleComplete() {
     await AsyncStorage.setItem(INTRO_STORAGE_KEY, 'true')
     setHasSeenIntro(true)
-
-    // Route based on existing auth state
     if (session && user) {
       router.replace('/(tabs)')
     } else {
@@ -143,54 +157,88 @@ export default function IntroScreen() {
   }
 
   function handleNext() {
-    if (isLast) {
-      handleComplete()
-      return
-    }
-    const next = currentIndex + 1
-    listRef.current?.scrollToIndex({ index: next, animated: true })
-    setCurrentIndex(next)
+    if (isLast) { handleComplete(); return }
+    goToSlide(currentIndex + 1)
   }
 
   function pressIn() {
-    Animated.spring(buttonScale, { toValue: 0.96, useNativeDriver: true, speed: 30 }).start()
+    Animated.spring(buttonScale, { toValue: 0.94, useNativeDriver: true, speed: 30 }).start()
   }
-
   function pressOut() {
     Animated.spring(buttonScale, { toValue: 1, useNativeDriver: true, speed: 30 }).start()
   }
 
-  function onMomentumScrollEnd(e: { nativeEvent: { contentOffset: { x: number } } }) {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W)
-    setCurrentIndex(idx)
-  }
+  const iconRotateDeg = iconRotate.interpolate({
+    inputRange: [-0.1, 0.1],
+    outputRange: ['-10deg', '10deg'],
+  })
+
+  const illustrationHeight = SCREEN_H * 0.48
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      {/* Slides */}
-      <FlatList<Slide>
-        ref={listRef}
-        data={SLIDES}
-        keyExtractor={(s) => s.key}
-        renderItem={({ item }: ListRenderItemInfo<Slide>) => <SlideView slide={item} />}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        scrollEventThrottle={16}
-        onMomentumScrollEnd={onMomentumScrollEnd}
-        getItemLayout={(_, index) => ({ length: SCREEN_W, offset: SCREEN_W * index, index })}
-        style={styles.list}
-      />
+      {/* Animated content area */}
+      <Animated.View
+        style={[
+          styles.content,
+          { opacity: contentOpacity, transform: [{ translateY: contentTranslateY }] },
+        ]}
+      >
+        {/* Illustration */}
+        <View style={[styles.illustrationArea, { height: illustrationHeight }]}>
+          {/* Outer glow — pulsing */}
+          <Animated.View
+            style={[
+              styles.glowOuter,
+              { backgroundColor: slide.color + '10', transform: [{ scale: glowScale }] },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.glowMiddle,
+              { backgroundColor: slide.color + '1e', transform: [{ scale: glowScale }] },
+            ]}
+          />
 
-      {/* Bottom controls */}
+          {/* Icon */}
+          <Animated.View
+            style={[
+              styles.iconWrap,
+              {
+                backgroundColor: slide.color + '22',
+                borderColor: slide.color + '55',
+                transform: [{ scale: iconScale }, { rotate: iconRotateDeg }],
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name={slide.icon} size={68} color={slide.color} />
+          </Animated.View>
+
+          {/* Logo badge on first slide */}
+          {slide.showLogo && (
+            <View style={styles.logoBadge}>
+              <Logo size="sm" showWordmark />
+            </View>
+          )}
+        </View>
+
+        {/* Text */}
+        <View style={styles.textArea}>
+          <View style={[styles.titleAccent, { backgroundColor: slide.color }]} />
+          <Text style={styles.title}>{slide.title}</Text>
+          <Text style={styles.description}>{slide.description}</Text>
+        </View>
+      </Animated.View>
+
+      {/* Bottom controls — not animated so they stay stable */}
       <View style={styles.controls}>
-        <Dots total={SLIDES.length} current={currentIndex} color={currentSlide.color} />
+        <Dots total={SLIDES.length} current={currentIndex} color={slide.color} />
 
         <Animated.View style={{ transform: [{ scale: buttonScale }], width: '100%' }}>
           <TouchableOpacity
-            style={[styles.btn, { backgroundColor: currentSlide.color }]}
+            style={[styles.btn, { backgroundColor: slide.color }]}
             onPress={handleNext}
             onPressIn={pressIn}
             onPressOut={pressOut}
@@ -200,7 +248,7 @@ export default function IntroScreen() {
               {isLast ? 'Regístrate gratis' : 'Continuar'}
             </Text>
             {!isLast && (
-              <MaterialCommunityIcons name="arrow-right" size={20} color="#000" style={styles.btnIcon} />
+              <MaterialCommunityIcons name="arrow-right" size={20} color="#000" />
             )}
           </TouchableOpacity>
         </Animated.View>
@@ -217,41 +265,57 @@ export default function IntroScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const slideStyles = StyleSheet.create({
+const dotStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 20,
+  },
+  dot: {
+    height: 6,
+    borderRadius: 3,
+  },
+})
+
+const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
+    backgroundColor: Colors.background,
+    justifyContent: 'space-between',
+  },
+  content: {
+    flex: 1,
     paddingTop: 60,
   },
   illustrationArea: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
   },
   glowOuter: {
     position: 'absolute',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
   },
   glowMiddle: {
     position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    width: 210,
+    height: 210,
+    borderRadius: 105,
   },
   iconWrap: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
   },
   logoBadge: {
     position: 'absolute',
-    bottom: '15%',
+    bottom: 16,
     backgroundColor: Colors.surface,
     borderRadius: 12,
     paddingHorizontal: 14,
@@ -261,12 +325,12 @@ const slideStyles = StyleSheet.create({
   },
   textArea: {
     paddingHorizontal: 36,
-    paddingBottom: 32,
+    paddingTop: 36,
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
   },
   titleAccent: {
-    width: 32,
+    width: 36,
     height: 4,
     borderRadius: 2,
   },
@@ -280,43 +344,14 @@ const slideStyles = StyleSheet.create({
   description: {
     color: Colors.textSecondary,
     fontSize: 16,
-    lineHeight: 24,
+    lineHeight: 26,
     textAlign: 'center',
-  },
-})
-
-const dotStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 20,
-  },
-  dot: {
-    height: 6,
-    width: 6,
-    borderRadius: 3,
-  },
-  dotActive: {
-    height: 6,
-    borderRadius: 3,
-  },
-})
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  list: {
-    flex: 1,
   },
   controls: {
     paddingHorizontal: 24,
     paddingBottom: 48,
-    paddingTop: 8,
+    paddingTop: 12,
     alignItems: 'center',
-    gap: 0,
   },
   btn: {
     flexDirection: 'row',
@@ -332,9 +367,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     textAlign: 'center',
-  },
-  btnIcon: {
-    marginLeft: 2,
   },
   skipBtn: {
     marginTop: 16,

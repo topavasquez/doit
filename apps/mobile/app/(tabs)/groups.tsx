@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, RefreshControl, TextInput, Modal, Alert,
+  StyleSheet, RefreshControl, TextInput, Modal, Alert, ActivityIndicator,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
@@ -94,7 +94,7 @@ export default function GroupsScreen() {
         {tab === 'my' && (
           <>
             {isLoading ? (
-              <View style={styles.loadingWrap}><Text style={styles.loadingText}>Cargando tus grupos...</Text></View>
+              <View style={styles.loadingWrap}><ActivityIndicator size="large" color={Colors.primary} /></View>
             ) : filtered.length === 0 ? (
               <View style={styles.emptyState}>
                 <View style={styles.emptyIconBox}>
