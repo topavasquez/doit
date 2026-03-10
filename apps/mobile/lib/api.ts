@@ -79,6 +79,20 @@ export const groupsApi = {
     request<{ checkins: unknown[]; total: number }>(`/groups/${id}/feed?limit=${limit}&offset=${offset}`),
   inviteFriend: (groupId: string, friendId: string) =>
     request<void>(`/groups/${groupId}/invite-friend`, { method: 'POST', body: JSON.stringify({ friend_id: friendId }) }),
+  getInvites: () =>
+    request<{ invites: import('@doit/shared').GroupInviteNotification[] }>('/groups/invites'),
+  acceptInvite: (notificationId: string) =>
+    request<{ group: { id: string; name: string } }>(`/groups/invites/${notificationId}/accept`, { method: 'POST' }),
+  declineInvite: (notificationId: string) =>
+    request<void>(`/groups/invites/${notificationId}/decline`, { method: 'POST' }),
+  getMessages: (groupId: string, before?: string) =>
+    request<{ messages: import('@doit/shared').GroupMessage[] }>(
+      `/groups/${groupId}/messages${before ? `?before=${encodeURIComponent(before)}` : ''}`
+    ),
+  sendMessage: (groupId: string, content: string) =>
+    request<{ message: import('@doit/shared').GroupMessage }>(
+      `/groups/${groupId}/messages`, { method: 'POST', body: JSON.stringify({ content }) }
+    ),
 }
 
 // Challenges

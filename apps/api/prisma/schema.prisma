@@ -32,6 +32,7 @@ model User {
   notifications          Notification[]
   friendships_sent       Friendship[]           @relation("FriendshipRequester")
   friendships_received   Friendship[]           @relation("FriendshipAddressee")
+  group_messages         GroupMessage[]
 
   @@map("users")
 }
@@ -54,17 +55,32 @@ model Friendship {
 }
 
 model Group {
-  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String
   avatar_url  String?
-  created_by  String        @db.Uuid
-  invite_code String        @unique
-  created_at  DateTime      @default(now()) @db.Timestamptz(6)
+  created_by  String         @db.Uuid
+  invite_code String         @unique
+  created_at  DateTime       @default(now()) @db.Timestamptz(6)
   challenges  Challenge[]
   members     GroupMember[]
-  creator     User          @relation(fields: [created_by], references: [id])
+  messages    GroupMessage[]
+  creator     User           @relation(fields: [created_by], references: [id])
 
   @@map("groups")
+}
+
+model GroupMessage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id   String   @db.Uuid
+  user_id    String   @db.Uuid
+  content    String
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  group Group @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([group_id, created_at(sort: Desc)])
+  @@map("group_messages")
 }
 
 model GroupMember {

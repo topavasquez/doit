@@ -183,6 +183,29 @@ export interface SentFriendRequest {
   created_at: string
 }
 
+export interface GroupMessage {
+  id: string
+  group_id: string
+  user_id: string
+  content: string
+  created_at: string
+  user?: {
+    id: string
+    username: string
+    display_name?: string | null
+    avatar_url?: string | null
+  }
+}
+
+export interface GroupInviteNotification {
+  id: string
+  group_id: string
+  group_name: string
+  invite_code: string
+  inviter: Friend | null
+  created_at: string
+}
+
 export interface PaginatedResponse<T> {
   data: T[]
   total: number

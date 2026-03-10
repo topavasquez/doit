@@ -45,26 +45,50 @@ export async function userRoutes(app: FastifyInstance) {
     handler: async (request, reply) => {
       const { id } = request.params as { id: string }
 
-      const [totalChallenges, totalCheckins, activeParticipations] = await Promise.all([
+      const [totalChallenges, totalCheckins, activeParticipations, checkinDates] = await Promise.all([
         prisma.challengeParticipant.count({ where: { user_id: id } }),
         prisma.checkin.count({ where: { user_id: id } }),
         prisma.challengeParticipant.findMany({
-          where: {
-            user_id: id,
-            challenge: { status: 'active' },
-          },
+          where: { user_id: id, challenge: { status: 'active' } },
           select: { streak_current: true, streak_longest: true },
         }),
+        // Distinct calendar days the user has checked in (newest first, max 365)
+        prisma.$queryRaw<{ day: Date }[]>`
+          SELECT DISTINCT checked_in_at::date AS day
+          FROM checkins
+          WHERE user_id = ${id}::uuid
+          ORDER BY day DESC
+          LIMIT 365
+        `,
       ])
 
-      const currentStreaks = activeParticipations.reduce((sum, p) => sum + p.streak_current, 0)
+      // Compute daily streak: consecutive days with ≥1 check-in, ending today or yesterday
+      function computeDailyStreak(dates: Date[]): number {
+        if (dates.length === 0) return 0
+        const MS_DAY = 86_400_000
+        const todayMs = new Date().setHours(0, 0, 0, 0)
+        const sorted = dates
+          .map((r) => new Date(r.day).setHours(0, 0, 0, 0))
+          .sort((a, b) => b - a)
+        // Streak only counts if the most recent day is today or yesterday
+        if (sorted[0] < todayMs - MS_DAY) return 0
+        let streak = 1
+        for (let i = 1; i < sorted.length; i++) {
+          if (sorted[i - 1] - sorted[i] === MS_DAY) streak++
+          else break
+        }
+        return streak
+      }
+
+      const dailyStreak = computeDailyStreak(checkinDates)
       const longestStreak = Math.max(0, ...activeParticipations.map((p) => p.streak_longest))
 
       return reply.send({
         stats: {
           total_challenges: totalChallenges,
           total_checkins: totalCheckins,
-          current_streaks: currentStreaks,
+          current_streaks: activeParticipations.reduce((s, p) => s + p.streak_current, 0),
+          daily_streak: dailyStreak,
           longest_streak: longestStreak,
           active_challenges: activeParticipations.length,
         },

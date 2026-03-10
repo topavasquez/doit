@@ -14,7 +14,7 @@ interface LeaderboardItemProps {
   level?: number
 }
 
-const RANK_COLORS = ['#f0a500', '#9CA3AF', '#CD7C2F']
+const RANK_COLORS = ['#FF7A00', '#9A9A9A', '#C8A060']
 const RANK_LABELS = ['1°', '2°', '3°']
 
 export function LeaderboardItem({

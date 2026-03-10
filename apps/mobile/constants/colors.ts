@@ -1,36 +1,36 @@
 export const Colors = {
   // Brand
-  primary: '#fe7d1b',
-  primaryDim: '#cc6214',
+  primary: '#FF7A00',
+  primarySoft: '#FF9A3D',
+  primaryDim: '#CC6200',
 
   // Backgrounds
-  background: '#111111',
-  surface: '#1c1c1c',
-  surfaceElevated: '#252525',
-  border: '#2e2e2e',
+  background: '#0B0B0B',
+  surface: '#151515',
+  surfaceElevated: '#1E1E1E',
+  border: '#242424',
 
   // Text
-  text: '#fff9f9',
-  textSecondary: '#a0a0a0',
-  textMuted: '#606060',
+  text: '#EAEAEA',
+  textSecondary: '#9A9A9A',
+  textMuted: '#5A5A5A',
 
   // Semantic
-  success: '#22C55E',
-  warning: '#f0a500',
-  error: '#EF4444',
-  info: '#3B82F6',
+  success: '#FF9A3D',
+  warning: '#FF7A00',
+  error: '#E84444',
 
   // Streak
-  streakFire: '#fe7d1b',
-  streakGold: '#f0a500',
+  streakFire: '#FF7A00',
+  streakGold: '#FF9A3D',
 
-  // Habit category tints
-  gym: '#fe7d1b',
-  reading: '#3B82F6',
-  sleep: '#8B5CF6',
-  diet: '#22C55E',
-  study: '#f0a500',
-  custom: '#EC4899',
+  // Habit category tints (warm palette only)
+  gym: '#FF7A00',
+  reading: '#FF9A3D',
+  sleep: '#9A9A9A',
+  diet: '#C8A060',
+  study: '#E8A820',
+  custom: '#8A8070',
 } as const
 
 export type ColorKey = keyof typeof Colors

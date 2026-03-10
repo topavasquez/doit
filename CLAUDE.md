@@ -35,7 +35,7 @@ C:\dev\doit\
 │   │           ├── challenges.ts          # CRUD + /start /cancel /join
 │   │           ├── checkins.ts            # POST /checkins, GET /checkins, POST /checkins/:id/react
 │   │           ├── friends.ts             # Friends system — search, request, accept/reject, list, sent
-│   │           ├── groups.ts              # CRUD + /join/:inviteCode, /invite, /invite-friend, /members, /feed
+│   │           ├── groups.ts              # CRUD + /join/:inviteCode, /invite, /invite-friend, /members, /messages, /invites
 │   │           ├── leaderboard.ts         # GET /leaderboard/:challengeId
 │   │           ├── notifications.ts       # GET/PATCH /notifications
 │   │           └── users.ts               # GET/PATCH /users/:id, /stats, /challenges
@@ -62,7 +62,7 @@ C:\dev\doit\
 │       │   ├── user/
 │       │   │   └── [id].tsx               # Public user profile — avatar, stats, friends count (read-only)
 │       │   ├── group/
-│       │   │   └── [id].tsx               # Group detail — Retos tab + Feed tab + invite modal
+│       │   │   └── [id].tsx               # Group detail — Retos tab + Chat tab + invite modal
 │       │   └── challenge/
 │       │       ├── [id].tsx               # Challenge detail — header, "Do It" btn, Leaderboard/Activity tabs
 │       │       ├── create.tsx             # Create challenge modal
@@ -168,7 +168,12 @@ npm run lint           # eslint
 - `POST /groups`, `GET /groups/:id`, `POST /groups/join/:code`
 - `POST /groups/:id/invite`, `DELETE /groups/:id/members/:userId`
 - `POST /groups/:id/invite-friend` — send in-app invite notification to a friend
-- `GET /groups/:id/feed` — all checkins across all challenges in a group (WhatsApp feed)
+- `GET /groups/invites` — pending group_invite notifications for current user (enriched with inviter info)
+- `POST /groups/invites/:id/accept` — join group via notification + auto-join active challenges; marks notification read
+- `POST /groups/invites/:id/decline` — marks notification read (no join)
+- `GET /groups/:id/messages?before=` — paginated chat messages, newest first (max 100)
+- `POST /groups/:id/messages` — send a chat message `{ content: string }`
+- `GET /groups/:id/feed` — all checkins across all challenges in a group (kept for internal use)
 - `POST /challenges`, `GET /challenges/:id`, `PATCH /challenges/:id`
 - `POST /challenges/:id/start`, `POST /challenges/:id/cancel`, `POST /challenges/:id/join`
 - `POST /checkins`, `GET /checkins?challengeId=`, `POST /checkins/:id/react`
@@ -193,7 +198,7 @@ npm run lint           # eslint
 - `(tabs)/` — main tab navigation (Inicio, Grupos, Competir, Perfil)
 - `friends/` — friends list (3 tabs) + search screens (stack routes from profile)
 - `user/[id]` — public profile screen for any user (avatar, stats, friend count)
-- `group/[id]` — group detail with Retos + Feed tabs
+- `group/[id]` — group detail with Retos + Chat tabs
 - `challenge/[id]` — challenge detail with leaderboard + activity
 - `challenge/photo-checkin` — photo check-in screen (modal); params: `challengeId`, `challengeTitle?`, `groupId?`
 - `challenge/create` — create challenge modal
@@ -228,7 +233,7 @@ npm run lint           # eslint
 - `CHALLENGE_FREQUENCIES`: `daily | weekly`
 - `STREAK_MILESTONES`: `[7, 14, 21, 30, 60, 90]`
 
-`packages/shared/src/types.ts` — all shared interfaces. Import as `import type { ... } from '@doit/shared'`. Includes: `User`, `Group`, `GroupMember`, `Challenge`, `ChallengeParticipant`, `Checkin`, `LeaderboardEntry`, `Notification`, `Friend`, `FriendRequest`, `SentFriendRequest`, `UserSearchResult`, `FriendshipStatus`.
+`packages/shared/src/types.ts` — all shared interfaces. Import as `import type { ... } from '@doit/shared'`. Includes: `User`, `Group`, `GroupMember`, `Challenge`, `ChallengeParticipant`, `Checkin`, `LeaderboardEntry`, `Notification`, `Friend`, `FriendRequest`, `SentFriendRequest`, `UserSearchResult`, `FriendshipStatus`, `GroupMessage`, `GroupInviteNotification`.
 
 `apps/mobile/constants/index.ts` (mobile-only):
 
@@ -239,14 +244,41 @@ npm run lint           # eslint
 
 ## UI Design System
 
-**Brand colors** (`apps/mobile/constants/colors.ts`):
+**Mandatory color palette** (`apps/mobile/constants/colors.ts`) — use ONLY these colors. Never use blues, greens, purples, or pinks:
 
-- `#fe7d1b` — primary (orange)
-- `#111111` — background
-- `#fff9f9` — text
-- `#1c1c1c` — surface
-- `#252525` — surfaceElevated
-- `#2e2e2e` — border
+| Token | Hex | Usage |
+|---|---|---|
+| `Colors.primary` | `#FF7A00` | Primary orange — CTA buttons, active tabs, accents |
+| `Colors.primarySoft` | `#FF9A3D` | Soft orange — secondary stats, reading category, success |
+| `Colors.primaryDim` | `#CC6200` | Dim orange — avatar borders |
+| `Colors.background` | `#0B0B0B` | Screen background |
+| `Colors.surface` | `#151515` | Cards, inputs |
+| `Colors.surfaceElevated` | `#1E1E1E` | Modals, elevated cards |
+| `Colors.border` | `#242424` | All borders |
+| `Colors.text` | `#EAEAEA` | Primary text |
+| `Colors.textSecondary` | `#9A9A9A` | Secondary text, labels |
+| `Colors.textMuted` | `#5A5A5A` | Muted text, placeholders |
+| `Colors.success` | `#FF9A3D` | Success states (same as primarySoft) |
+| `Colors.error` | `#E84444` | Error states only |
+| `Colors.streakFire` | `#FF7A00` | Streak fire icon |
+| `Colors.streakGold` | `#FF9A3D` | Streak gold accents |
+
+**Habit category colors** (`HABIT_CATEGORY_CONFIG` in `apps/mobile/constants/index.ts`) — all within warm palette:
+
+| Category | Color |
+|---|---|
+| gym | `#FF7A00` |
+| reading | `#FF9A3D` |
+| sleep | `#9A9A9A` |
+| diet | `#C8A060` |
+| study | `#E8A820` |
+| custom | `#8A8070` |
+
+**Medal / rank colors** (used in leaderboard and compete screens):
+
+- 1st place: `#FF7A00`
+- 2nd place: `#9A9A9A`
+- 3rd place: `#C8A060`
 
 **Design patterns:**
 
@@ -258,7 +290,7 @@ npm run lint           # eslint
 - Category indicators: colored dot (7×7 circle) + label, never emoji
 - Leaderboard top 3: podium layout (2nd–1st–3rd order) with `PodiumCard` inline in `challenge/[id].tsx`
 - Logo: text-only `Logo` component ("**Do**It" in two colors)
-- Feed bubbles: right-aligned (orange tint) for current user, left-aligned (surface) for others
+- Chat bubbles: right-aligned (orange tint, `Colors.primary + '22'`) for current user, left-aligned (surface) for others; chat uses `FlatList` with `[...messages].reverse()` (no `inverted`) + `scrollToEnd` to avoid text rotation bug
 - Loading states: always use `<ActivityIndicator size="large" color={Colors.primary} />`, never text
 - Avatars: show `<Image>` when `avatar_url` is set, otherwise show initials in colored circle
 
@@ -326,13 +358,32 @@ Group invite modal (`group/[id].tsx`) shows friends not already in the group + s
 3. User takes photo with camera or picks from gallery
 4. Optional note added
 5. On submit: photo uploaded to Supabase Storage → `POST /checkins` with `photo_url` + `notes`
-6. Checkin appears in group Feed tab and challenge Activity tab
+6. Checkin appears in challenge Activity tab
 
-## Group Feed
+## Group Chat
 
-`GET /groups/:id/feed` returns all checkins across all challenges in a group, newest first.
-Displayed in `group/[id].tsx` under the **Feed** tab as WhatsApp-style chat bubbles with real user avatars.
-Auto-refreshes every 30 seconds.
+`group/[id].tsx` has two tabs: **Retos** and **Chat**.
+
+**Chat tab** is a real-time group chat (not check-in feed):
+- `GroupMessage` DB table: `id`, `group_id`, `user_id`, `content` (TEXT), `created_at`
+- `GET /groups/:id/messages` — newest first, paginated by `?before=<ISO timestamp>`
+- `POST /groups/:id/messages` — sends `{ content }`, returns created message with user info
+- Mobile: `FlatList` with `[...messages].reverse()` (oldest→newest top→bottom) + `onContentSizeChange` scroll to end. **Do NOT use `inverted` prop** — it applies `scaleY: -1` which flips text on some devices
+- Input row at bottom with `KeyboardAvoidingView` (`behavior="padding"` iOS, `behavior="height"` Android, `keyboardVerticalOffset=90` on iOS)
+- Polling every 15 seconds via TanStack Query `refetchInterval`
+
+**Retos tab** layout: regular `ScrollView` with hero card + tab pills + challenge list.
+**Chat tab** layout: `KeyboardAvoidingView` with fixed header (hero + tabs) + `FlatList` (flex: 1) + input row. The two tabs use different root layouts — switching tabs re-renders appropriately.
+
+`autoJoinActiveChallenges(groupId, userId)` is a helper in `groups.ts` called when a user joins a group (via invite accept OR invite code). It creates `ChallengeParticipant` records with 0 score for all active challenges and seeds them into Redis, so they immediately appear on the leaderboard.
+
+## Group Invites
+
+`groups.tsx` shows a **"Invitaciones pendientes"** section above "Mis Grupos" when the user has pending `group_invite` notifications:
+- `GET /groups/invites` — reads unread `group_invite` notifications, enriches with inviter user info
+- Each invite card shows: inviter avatar, group name, "X te invitó a unirte", Aceptar/Rechazar buttons
+- Accepting calls `POST /groups/invites/:id/accept` → joins group + auto-joins active challenges → navigates to group
+- Declining calls `POST /groups/invites/:id/decline` → marks notification read → card disappears
 
 ## Group Member Avatars
 

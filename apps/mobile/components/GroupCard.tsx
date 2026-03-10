@@ -6,9 +6,9 @@ import { HABIT_CATEGORY_CONFIG } from '../constants'
 import type { Group } from '@doit/shared'
 
 const GROUP_COLORS = [
-  Colors.primary, '#3B82F6', '#8B5CF6', '#22C55E', '#f0a500', '#EC4899',
+  '#FF7A00', '#FF9A3D', '#CC6200', '#E8A820', '#C8A060', '#8A8070',
 ]
-const AVATAR_TINTS = ['#4B5563', '#374151', '#6B7280', '#1F2937', '#9CA3AF']
+const AVATAR_TINTS = ['#2A2A2A', '#242424', '#333333', '#1E1E1E', '#3A3A3A']
 
 function pickColor(name: string): string {
   return GROUP_COLORS[name.charCodeAt(0) % GROUP_COLORS.length]

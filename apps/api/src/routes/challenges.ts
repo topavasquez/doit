@@ -99,7 +99,21 @@ export async function challengeRoutes(app: FastifyInstance) {
         return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Not authorized' })
       }
 
-      const myParticipation = challenge.participants.find((p) => p.user_id === request.userId) ?? null
+      let myParticipation = challenge.participants.find((p) => p.user_id === request.userId) ?? null
+
+      // Auto-join active challenges when a group member views them without a participation record
+      if (!myParticipation && challenge.status === 'active') {
+        const newParticipant = await prisma.challengeParticipant.create({
+          data: { challenge_id: id, user_id: request.userId },
+          include: {
+            user: { select: { id: true, username: true, display_name: true, avatar_url: true, level: true } },
+          },
+        })
+        myParticipation = newParticipant
+        try {
+          await leaderboard.seedFromDb(id, [{ userId: request.userId, score: 0 }])
+        } catch { /* Redis optional */ }
+      }
 
       let hasCheckedInToday = false
       if (myParticipation) {

@@ -85,8 +85,8 @@ export default function UserProfileScreen() {
         {stats && (
           <View style={styles.statsRow}>
             <StatCard label="Retos" value={stats.total_challenges} color={Colors.primary} />
-            <StatCard label="Check-ins" value={stats.total_checkins} color="#3B82F6" />
-            <StatCard label="Mejor Racha" value={stats.longest_streak} color="#8B5CF6" />
+            <StatCard label="Check-ins" value={stats.total_checkins} color="#FF9A3D" />
+            <StatCard label="Mejor Racha" value={stats.longest_streak} color="#E8A820" />
           </View>
         )}
 

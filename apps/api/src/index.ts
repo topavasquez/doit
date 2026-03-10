@@ -100,7 +100,7 @@ async function bootstrap() {
 
   // Cron: Reset streak to 0 for users who missed an entire day (runs at 00:01 UTC)
   cron.schedule("1 0 * * *", async () => {
-    const { yesterdayUTC } = getUTCDays()
+    const { yesterdayUTC } = getUTCDays();
 
     // Reset users whose last check-in was before yesterday (missed the whole day)
     const reset = await prisma.user.updateMany({
@@ -115,7 +115,9 @@ async function bootstrap() {
     });
 
     if (reset.count > 0) {
-      app.log.info(`[Streak] Reset streak for ${reset.count} users who missed yesterday`);
+      app.log.info(
+        `[Streak] Reset streak for ${reset.count} users who missed yesterday`,
+      );
     }
   });
 

@@ -1,9 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useLayoutEffect } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, RefreshControl, ActivityIndicator,
 } from 'react-native'
-import { useRouter, useFocusEffect } from 'expo-router'
+import { useRouter, useFocusEffect, useNavigation } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useQuery } from '@tanstack/react-query'
 import { usersApi, groupsApi } from '../../lib/api'
@@ -45,6 +45,7 @@ const statStyles = StyleSheet.create({
 export default function HomeScreen() {
   const { user } = useAuth()
   const router = useRouter()
+  const navigation = useNavigation()
   const [dayTab, setDayTab] = useState<DayTab>('today')
 
   const { data: statsData, refetch: refetchStats, isRefetching } = useQuery({
@@ -79,6 +80,7 @@ export default function HomeScreen() {
     total_challenges: number
     total_checkins: number
     current_streaks: number
+    daily_streak: number
     longest_streak: number
     active_challenges: number
   }) ?? null
@@ -98,7 +100,28 @@ export default function HomeScreen() {
   const completedTodayChallenges = activeChallenges.filter((c) => c.has_checked_in_today)
   const upcomingChallenges = pendingChallenges
 
-  const currentStreak = stats?.current_streaks ?? 0
+  const currentStreak = stats?.daily_streak ?? 0
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerRight}>
+          {currentStreak > 0 && (
+            <View style={styles.headerStreak}>
+              <MaterialCommunityIcons name="fire" size={18} color={Colors.streakFire} />
+              <Text style={styles.headerStreakText}>{currentStreak}</Text>
+            </View>
+          )}
+          <TouchableOpacity
+            onPress={() => router.navigate('/(tabs)/profile')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialCommunityIcons name="cog-outline" size={22} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+      ),
+    })
+  }, [currentStreak])
 
   const tabChallenges =
     dayTab === 'today'
@@ -122,18 +145,10 @@ export default function HomeScreen() {
       >
         {/* ── Greeting row ──────────────────────────────────── */}
         <View style={styles.greeting}>
-          <View style={styles.greetingLeft}>
-            <Text style={styles.greetingHello}>
-              Hello, {user?.display_name ?? user?.username ?? 'there'}!
-            </Text>
-            <Text style={styles.greetingSubtitle}>Mantengamos la racha viva hoy</Text>
-          </View>
-          {currentStreak > 0 && (
-            <View style={styles.streakBadge}>
-              <Text style={styles.streakNumber}>{currentStreak}</Text>
-              <Text style={styles.streakLabel}>Días{'\n'}Racha</Text>
-            </View>
-          )}
+          <Text style={styles.greetingHello}>
+            Hola, {user?.display_name ?? user?.username ?? 'ahí'}!
+          </Text>
+          <Text style={styles.greetingSubtitle}>Mantengamos la racha viva hoy</Text>
         </View>
 
         {/* ── Daily Progress ────────────────────────────────── */}
@@ -169,7 +184,7 @@ export default function HomeScreen() {
             icon="check-circle-outline"
             value={stats?.total_checkins ?? 0}
             label="Tareas Hechas"
-            color="#3B82F6"
+            color={Colors.primarySoft}
           />
           <StatCard
             icon="trophy-outline"
@@ -300,23 +315,20 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { padding: 20, paddingBottom: 48 },
 
+  // Header
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 16 },
+  headerStreak: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: Colors.primary + '20', borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: Colors.primary + '40',
+  },
+  headerStreakText: { color: Colors.streakFire, fontWeight: '900', fontSize: 15 },
+
   // Greeting
-  greeting: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  greetingLeft: { flex: 1 },
+  greeting: { marginBottom: 20 },
   greetingHello: { color: Colors.text, fontSize: 26, fontWeight: '800' },
   greetingSubtitle: { color: Colors.textSecondary, fontSize: 14, marginTop: 4 },
-  streakBadge: {
-    alignItems: 'center',
-    backgroundColor: Colors.primary + '1a',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1.5,
-    borderColor: Colors.primary + '40',
-    marginLeft: 14,
-  },
-  streakNumber: { color: Colors.primary, fontSize: 24, fontWeight: '900', lineHeight: 28 },
-  streakLabel: { color: Colors.primary, fontSize: 11, fontWeight: '600', textAlign: 'center' },
 
   // Daily progress
   progressCard: {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, RefreshControl, TextInput, Modal, Alert, ActivityIndicator,
+  StyleSheet, RefreshControl, TextInput, Modal, Alert, ActivityIndicator, Image,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
@@ -10,7 +10,7 @@ import { groupsApi } from '../../lib/api'
 import { GroupCard } from '../../components/GroupCard'
 import { Colors } from '../../constants/colors'
 import { useAuth } from '../../hooks/useAuth'
-import type { Group } from '@doit/shared'
+import type { Group, GroupInviteNotification } from '@doit/shared'
 
 type TabId = 'my' | 'join'
 
@@ -28,6 +28,41 @@ export default function GroupsScreen() {
     queryKey: ['groups'],
     queryFn: groupsApi.list,
   })
+
+  const { data: invitesData, refetch: refetchInvites } = useQuery({
+    queryKey: ['group-invites'],
+    queryFn: groupsApi.getInvites,
+  })
+
+  const [respondingInviteId, setRespondingInviteId] = useState<string | null>(null)
+
+  async function handleInviteAccept(invite: GroupInviteNotification) {
+    if (respondingInviteId) return
+    setRespondingInviteId(invite.id)
+    try {
+      const res = await groupsApi.acceptInvite(invite.id)
+      qc.invalidateQueries({ queryKey: ['groups'] })
+      qc.invalidateQueries({ queryKey: ['group-invites'] })
+      router.push(`/group/${res.group.id}`)
+    } catch {
+      Alert.alert('Error', 'No se pudo aceptar la invitación')
+    } finally {
+      setRespondingInviteId(null)
+    }
+  }
+
+  async function handleInviteDecline(inviteId: string) {
+    if (respondingInviteId) return
+    setRespondingInviteId(inviteId)
+    try {
+      await groupsApi.declineInvite(inviteId)
+      qc.invalidateQueries({ queryKey: ['group-invites'] })
+    } catch {
+      Alert.alert('Error', 'No se pudo rechazar la invitación')
+    } finally {
+      setRespondingInviteId(null)
+    }
+  }
 
   const createMutation = useMutation({
     mutationFn: (name: string) => groupsApi.create({ name }),
@@ -55,12 +90,13 @@ export default function GroupsScreen() {
   const filtered = groups.filter(
     (g) => search.trim() === '' || g.name.toLowerCase().includes(search.toLowerCase()),
   )
+  const invites = (invitesData?.invites ?? []) as GroupInviteNotification[]
 
   return (
     <View style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={Colors.primary} />}
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => { refetch(); refetchInvites() }} tintColor={Colors.primary} />}
         keyboardShouldPersistTaps="handled"
       >
         {/* Search bar */}
@@ -89,6 +125,59 @@ export default function GroupsScreen() {
             <Text style={[styles.tabText, tab === 'join' && styles.tabTextActive]}>Descubrir</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Group invites */}
+        {tab === 'my' && invites.length > 0 && (
+          <View style={styles.invitesSection}>
+            <Text style={styles.invitesTitle}>
+              Invitaciones pendientes
+              <Text style={styles.invitesBadge}> {invites.length}</Text>
+            </Text>
+            {invites.map((invite) => {
+              const isResponding = respondingInviteId === invite.id
+              const inviterName = invite.inviter?.display_name ?? invite.inviter?.username ?? 'Alguien'
+              return (
+                <View key={invite.id} style={styles.inviteCard}>
+                  <View style={styles.inviteHeader}>
+                    {invite.inviter?.avatar_url ? (
+                      <Image source={{ uri: invite.inviter.avatar_url }} style={styles.inviteAvatar} />
+                    ) : (
+                      <View style={[styles.inviteAvatar, styles.inviteAvatarFallback]}>
+                        <Text style={styles.inviteAvatarInitial}>
+                          {(invite.inviter?.display_name ?? invite.inviter?.username ?? '?')[0].toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.inviteInfo}>
+                      <Text style={styles.inviteGroupName}>{invite.group_name}</Text>
+                      <Text style={styles.inviteSubtext}>{inviterName} te invitó a unirte</Text>
+                    </View>
+                    <MaterialCommunityIcons name="account-group" size={20} color={Colors.primary} />
+                  </View>
+                  <View style={styles.inviteActions}>
+                    <TouchableOpacity
+                      style={[styles.inviteDeclineBtn, isResponding && styles.btnDisabled]}
+                      onPress={() => handleInviteDecline(invite.id)}
+                      disabled={!!respondingInviteId}
+                    >
+                      <Text style={styles.inviteDeclineText}>Rechazar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.inviteAcceptBtn, isResponding && styles.btnDisabled]}
+                      onPress={() => handleInviteAccept(invite)}
+                      disabled={!!respondingInviteId}
+                    >
+                      {isResponding
+                        ? <ActivityIndicator size="small" color="#000" />
+                        : <Text style={styles.inviteAcceptText}>Aceptar</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )
+            })}
+          </View>
+        )}
 
         {/* My Groups */}
         {tab === 'my' && (
@@ -233,6 +322,32 @@ const styles = StyleSheet.create({
   joinBtn: { width: '100%', backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 4 },
   joinBtnText: { color: '#000', fontWeight: '800', fontSize: 16 },
   btnDisabled: { opacity: 0.4 },
+  invitesSection: { marginBottom: 20, gap: 10 },
+  invitesTitle: { color: Colors.textSecondary, fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
+  invitesBadge: { color: Colors.primary },
+  inviteCard: {
+    backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.primary + '40',
+    padding: 16, gap: 14,
+  },
+  inviteHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  inviteAvatar: { width: 44, height: 44, borderRadius: 22 },
+  inviteAvatarFallback: { backgroundColor: Colors.primary + '30', alignItems: 'center', justifyContent: 'center' },
+  inviteAvatarInitial: { color: Colors.primary, fontWeight: '800', fontSize: 16 },
+  inviteInfo: { flex: 1 },
+  inviteGroupName: { color: Colors.text, fontWeight: '800', fontSize: 15 },
+  inviteSubtext: { color: Colors.textSecondary, fontSize: 13, marginTop: 2 },
+  inviteActions: { flexDirection: 'row', gap: 10 },
+  inviteDeclineBtn: {
+    flex: 1, borderRadius: 10, paddingVertical: 10, alignItems: 'center',
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  inviteDeclineText: { color: Colors.textSecondary, fontWeight: '600', fontSize: 14 },
+  inviteAcceptBtn: {
+    flex: 1, backgroundColor: Colors.primary, borderRadius: 10, paddingVertical: 10, alignItems: 'center',
+  },
+  inviteAcceptText: { color: '#000', fontWeight: '700', fontSize: 14 },
+
   fab: {
     position: 'absolute', bottom: 24, right: 24,
     width: 56, height: 56, borderRadius: 28,

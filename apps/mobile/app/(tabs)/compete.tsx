@@ -27,9 +27,9 @@ type LbEntry = {
 // ─── Medal config ─────────────────────────────────────────────────────────────
 
 const MEDALS = [
-  { color: '#f0a500', label: '1°', icon: 'trophy' as const, size: 60, elevated: true },
-  { color: '#9CA3AF', label: '2°', icon: 'medal' as const, size: 52, elevated: false },
-  { color: '#CD7C2F', label: '3°', icon: 'medal' as const, size: 52, elevated: false },
+  { color: '#FF7A00', label: '1°', icon: 'trophy' as const, size: 60, elevated: true },
+  { color: '#9A9A9A', label: '2°', icon: 'medal' as const, size: 52, elevated: false },
+  { color: '#C8A060', label: '3°', icon: 'medal' as const, size: 52, elevated: false },
 ]
 
 // ─── Podium card ─────────────────────────────────────────────────────────────

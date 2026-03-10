@@ -1,8 +1,7 @@
-import { TouchableOpacity } from "react-native";
+import { TouchableOpacity, Image } from "react-native";
 import { Tabs, useRouter } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Colors } from "../../constants/colors";
-import { Logo } from "../../components/ui/Logo";
 
 function SettingsButton() {
   const router = useRouter();
@@ -21,6 +20,15 @@ function SettingsButton() {
   );
 }
 
+function HeaderLogo() {
+  return (
+    <Image
+      source={{ uri: 'https://res.cloudinary.com/dohtcfagz/image/upload/v1773112079/logo-black_esrgmn.png' }}
+      style={{ height: 36, width: 120, resizeMode: 'contain', marginLeft: 16 }}
+    />
+  );
+}
+
 export default function TabsLayout() {
   return (
     <Tabs
@@ -29,14 +37,13 @@ export default function TabsLayout() {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.border,
           borderTopWidth: 1,
-          height: 64,
           paddingBottom: 10,
-          paddingTop: 4,
+          paddingTop: 10,
         },
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.textMuted,
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600", marginTop: 2 },
-        headerStyle: { backgroundColor: Colors.background },
+        headerStyle: { backgroundColor: Colors.background, height: 80 },
         headerTintColor: Colors.primary,
         headerShadowVisible: false,
         headerTitleStyle: { color: Colors.text, fontWeight: "800" },
@@ -46,7 +53,8 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Inicio",
-          headerTitle: () => <Logo size="sm" showWordmark />,
+          headerTitle: () => null,
+          headerLeft: () => <HeaderLogo />,
           headerRight: () => <SettingsButton />,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons

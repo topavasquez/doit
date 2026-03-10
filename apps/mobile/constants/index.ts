@@ -4,12 +4,12 @@ export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000";
 
 export const HABIT_CATEGORY_CONFIG = {
-  gym: { label: "Gym", color: "#fe7d1b" },
-  reading: { label: "Lectura", color: "#3B82F6" },
-  sleep: { label: "Sueño", color: "#8B5CF6" },
-  diet: { label: "Dieta", color: "#22C55E" },
-  study: { label: "Estudio", color: "#f0a500" },
-  custom: { label: "Personalizado", color: "#EC4899" },
+  gym: { label: "Gym", color: "#FF7A00" },
+  reading: { label: "Lectura", color: "#FF9A3D" },
+  sleep: { label: "Sueño", color: "#9A9A9A" },
+  diet: { label: "Dieta", color: "#C8A060" },
+  study: { label: "Estudio", color: "#E8A820" },
+  custom: { label: "Personalizado", color: "#8A8070" },
 } as const;
 
 export const QUICK_REACTIONS = ["+1", "strong", "clap", "fire", "let's go"] as const;

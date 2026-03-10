@@ -1,7 +1,29 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../plugins/db'
+import { leaderboard } from '../plugins/redis'
 import { requireAuth } from '../middleware/auth'
+
+// Auto-join a user to all active challenges in a group (used when joining/accepting invite)
+async function autoJoinActiveChallenges(groupId: string, userId: string) {
+  const activeChallenges = await prisma.challenge.findMany({
+    where: { group_id: groupId, status: 'active' },
+    select: { id: true },
+  })
+  for (const challenge of activeChallenges) {
+    const existing = await prisma.challengeParticipant.findUnique({
+      where: { challenge_id_user_id: { challenge_id: challenge.id, user_id: userId } },
+    })
+    if (!existing) {
+      await prisma.challengeParticipant.create({
+        data: { challenge_id: challenge.id, user_id: userId },
+      })
+      try {
+        await leaderboard.seedFromDb(challenge.id, [{ userId, score: 0 }])
+      } catch { /* Redis optional */ }
+    }
+  }
+}
 
 function generateInviteCode(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase()
@@ -52,6 +74,100 @@ export async function groupRoutes(app: FastifyInstance) {
       })
 
       return reply.status(201).send({ group })
+    },
+  })
+
+  // GET /groups/invites — pending group_invite notifications for current user
+  app.get('/invites', {
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      const notifications = await prisma.notification.findMany({
+        where: { user_id: request.userId, type: 'group_invite', read: false },
+        orderBy: { created_at: 'desc' },
+      })
+
+      if (notifications.length === 0) return reply.send({ invites: [] })
+
+      const inviterIds = [...new Set(
+        notifications.map((n) => (n.payload as any).inviter_id).filter(Boolean)
+      )]
+      const inviters = await prisma.user.findMany({
+        where: { id: { in: inviterIds } },
+        select: { id: true, username: true, display_name: true, avatar_url: true },
+      })
+      const inviterMap = Object.fromEntries(inviters.map((u) => [u.id, u]))
+
+      const invites = notifications.map((n) => {
+        const p = n.payload as any
+        return {
+          id: n.id,
+          group_id: p.group_id,
+          group_name: p.group_name,
+          invite_code: p.invite_code,
+          inviter: inviterMap[p.inviter_id] ?? null,
+          created_at: n.created_at,
+        }
+      })
+
+      return reply.send({ invites })
+    },
+  })
+
+  // POST /groups/invites/:id/accept
+  app.post('/invites/:id/accept', {
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      const { id } = request.params as { id: string }
+
+      const notification = await prisma.notification.findUnique({ where: { id } })
+      if (!notification || notification.user_id !== request.userId || notification.type !== 'group_invite') {
+        return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Invite not found' })
+      }
+
+      const payload = notification.payload as any
+      const group = await prisma.group.findUnique({
+        where: { invite_code: payload.invite_code },
+        include: { _count: { select: { members: true } } },
+      })
+
+      if (!group) {
+        return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Group not found' })
+      }
+      if (group._count.members >= 10) {
+        return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Group is full' })
+      }
+
+      const existing = await prisma.groupMember.findUnique({
+        where: { group_id_user_id: { group_id: group.id, user_id: request.userId } },
+      })
+      if (!existing) {
+        await prisma.groupMember.create({
+          data: { group_id: group.id, user_id: request.userId, role: 'member' },
+        })
+      }
+
+      await autoJoinActiveChallenges(group.id, request.userId)
+      await prisma.notification.update({ where: { id }, data: { read: true } })
+      return reply.send({ group: { id: group.id, name: group.name } })
+    },
+  })
+
+  // POST /groups/invites/:id/decline
+  app.post('/invites/:id/decline', {
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      const { id } = request.params as { id: string }
+
+      const notification = await prisma.notification.findUnique({
+        where: { id },
+        select: { user_id: true, type: true },
+      })
+      if (!notification || notification.user_id !== request.userId || notification.type !== 'group_invite') {
+        return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Invite not found' })
+      }
+
+      await prisma.notification.update({ where: { id }, data: { read: true } })
+      return reply.status(204).send()
     },
   })
 
@@ -169,6 +285,8 @@ export async function groupRoutes(app: FastifyInstance) {
         data: { group_id: group.id, user_id: request.userId, role: 'member' },
       })
 
+      await autoJoinActiveChallenges(group.id, request.userId)
+
       return reply.send({ group: { id: group.id, name: group.name } })
     },
   })
@@ -264,6 +382,66 @@ export async function groupRoutes(app: FastifyInstance) {
       })
 
       return reply.status(201).send({ ok: true })
+    },
+  })
+
+  // GET /groups/:id/messages — paginated chat messages (newest first)
+  app.get('/:id/messages', {
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const query = request.query as { limit?: string; before?: string }
+
+      const membership = await prisma.groupMember.findUnique({
+        where: { group_id_user_id: { group_id: id, user_id: request.userId } },
+      })
+      if (!membership) {
+        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Not a group member' })
+      }
+
+      const limit = Math.min(parseInt(query.limit ?? '50'), 100)
+      const messages = await prisma.groupMessage.findMany({
+        where: {
+          group_id: id,
+          ...(query.before ? { created_at: { lt: new Date(query.before) } } : {}),
+        },
+        include: {
+          user: { select: { id: true, username: true, display_name: true, avatar_url: true } },
+        },
+        orderBy: { created_at: 'desc' },
+        take: limit,
+      })
+
+      return reply.send({ messages })
+    },
+  })
+
+  // POST /groups/:id/messages — send a chat message
+  app.post('/:id/messages', {
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const body = request.body as { content?: string }
+
+      if (!body.content?.trim()) {
+        return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'content required' })
+      }
+
+      const membership = await prisma.groupMember.findUnique({
+        where: { group_id_user_id: { group_id: id, user_id: request.userId } },
+      })
+      if (!membership) {
+        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Not a group member' })
+      }
+
+      const message = await prisma.groupMessage.create({
+        data: { group_id: id, user_id: request.userId, content: body.content.trim() },
+        include: {
+          user: { select: { id: true, username: true, display_name: true, avatar_url: true } },
+        },
+      })
+
+      return reply.status(201).send({ message })
     },
   })
 
