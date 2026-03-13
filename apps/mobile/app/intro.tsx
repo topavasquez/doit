@@ -152,7 +152,7 @@ export default function IntroScreen() {
     if (session && user) {
       router.replace('/(tabs)')
     } else {
-      router.replace('/(auth)/sign-in?register=true')
+      router.replace('/(auth)/sign-in')
     }
   }
 
@@ -216,12 +216,6 @@ export default function IntroScreen() {
             <MaterialCommunityIcons name={slide.icon} size={68} color={slide.color} />
           </Animated.View>
 
-          {/* Logo badge on first slide */}
-          {slide.showLogo && (
-            <View style={styles.logoBadge}>
-              <Logo size="sm" showWordmark />
-            </View>
-          )}
         </View>
 
         {/* Text */}

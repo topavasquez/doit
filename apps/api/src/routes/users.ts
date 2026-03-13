@@ -88,7 +88,7 @@ export async function userRoutes(app: FastifyInstance) {
         return streak
       }
 
-      const dailyStreak = computeDailyStreak(checkinDates)
+      const dailyStreak = computeDailyStreak(checkinDates.map(r => r.day))
       const longestStreak = Math.max(0, ...activeParticipations.map((p) => p.streak_longest))
       const hasCheckedInToday = checkinDates.length > 0 && toUTCDay(checkinDates[0].day) === todayUTC
 

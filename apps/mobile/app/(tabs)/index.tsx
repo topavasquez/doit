@@ -1,4 +1,4 @@
-import { useState, useCallback, useLayoutEffect } from "react";
+import { useState, useCallback, useLayoutEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Image,
 } from "react-native";
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from "react-native-reanimated";
 import { useRouter, useFocusEffect, useNavigation } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
@@ -70,6 +71,29 @@ export default function HomeScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const [dayTab, setDayTab] = useState<DayTab>("today");
+
+  // ── Animated counters ──────────────────────────────────────────────────────
+  const [displayPct, setDisplayPct]           = useState(0);
+  const [displayCheckins, setDisplayCheckins] = useState(0);
+  const [displayXp, setDisplayXp]             = useState(0);
+  const [displayStreak, setDisplayStreak]     = useState(0);
+  const barWidth = useSharedValue(0);
+  const trackWidth = useRef(0);
+  const timers = useRef<ReturnType<typeof setInterval>[]>([]);
+
+  function countUp(target: number, setter: (v: number) => void, duration = 700) {
+    if (target <= 0) { setter(0); return; }
+    const steps = Math.min(target, 60);
+    const interval = duration / steps;
+    const increment = target / steps;
+    let current = 0;
+    const t = setInterval(() => {
+      current += increment;
+      if (current >= target) { setter(target); clearInterval(t); }
+      else setter(Math.round(current));
+    }, interval);
+    timers.current.push(t);
+  }
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const {
@@ -133,6 +157,39 @@ export default function HomeScreen() {
   const currentStreak = stats?.daily_streak ?? 0;
   const checkedInToday = stats?.has_checked_in_today ?? false;
   const streakColor = checkedInToday ? Colors.streakFire : Colors.textMuted;
+
+  const barStyle = useAnimatedStyle(() => ({ width: barWidth.value }));
+
+  // Re-anima los números cada vez que el screen tiene foco y los datos cambian
+  useFocusEffect(
+    useCallback(() => {
+      timers.current.forEach(clearInterval);
+      timers.current = [];
+
+      setDisplayPct(0);
+      setDisplayCheckins(0);
+      setDisplayXp(0);
+      setDisplayStreak(0);
+      barWidth.value = 0;
+
+      const pct    = Math.round(progressPct);
+      const checks = stats?.total_checkins ?? 0;
+      const xp     = user?.xp ?? 0;
+      const streak = stats?.daily_streak ?? 0;
+
+      countUp(pct,    setDisplayPct,       400);
+      countUp(checks, setDisplayCheckins,  750);
+      countUp(xp,     setDisplayXp,        750);
+      countUp(streak, setDisplayStreak,    750);
+
+      barWidth.value = withTiming(
+        (pct / 100) * trackWidth.current,
+        { duration: 750, easing: Easing.linear },
+      );
+
+      return () => { timers.current.forEach(clearInterval); };
+    }, [progressPct, stats, user]),
+  );
 
   const todayChallenges = activeChallenges.filter((c) => !c.has_checked_in_today);
   const completedTodayChallenges = activeChallenges.filter((c) => c.has_checked_in_today);
@@ -221,19 +278,19 @@ export default function HomeScreen() {
             <Text style={styles.progressMotivation}>
               {motivationalText(progressPct)}
             </Text>
-            <Text style={styles.progressPct}>{Math.round(progressPct)}%</Text>
+            <Text style={styles.progressPct}>{displayPct}%</Text>
           </View>
 
           {/* Progress bar */}
-          <View style={styles.progressTrack}>
-            <View
+          <View
+            style={styles.progressTrack}
+            onLayout={(e) => { trackWidth.current = e.nativeEvent.layout.width; }}
+          >
+            <Animated.View
               style={[
                 styles.progressFill,
-                {
-                  width: progressWidth,
-                  backgroundColor:
-                    progressPct === 100 ? Colors.success : Colors.primary,
-                },
+                { backgroundColor: progressPct === 100 ? Colors.success : Colors.primary },
+                barStyle,
               ]}
             />
           </View>
@@ -260,7 +317,7 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.statLabel}>RETOS</Text>
             <Text style={[styles.statValue, { color: Colors.text }]}>
-              {stats?.total_checkins ?? 0}
+              {displayCheckins}
             </Text>
             <Text style={[styles.statDelta, { color: "#4CAF50" }]}>
               +{doneToday} hoy
@@ -278,9 +335,7 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.statLabel}>PUNTOS</Text>
             <Text style={[styles.statValue, { color: Colors.text }]}>
-              {user?.xp && user.xp >= 1000
-                ? `${(user.xp / 1000).toFixed(1)}k`
-                : (user?.xp ?? 0)}
+              {displayXp >= 1000 ? `${(displayXp / 1000).toFixed(1)}k` : displayXp}
             </Text>
             <Text style={[styles.statDelta, { color: "#4CAF50" }]}>
               XP total
@@ -298,7 +353,7 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.statLabel}>RACHA</Text>
             <Text style={[styles.statValue, { color: Colors.text }]}>
-              {currentStreak}
+              {displayStreak}
             </Text>
             <Text style={[styles.statDelta, { color: Colors.streakFire }]}>
               {currentStreak > 0 ? "¡Fuego!" : "sin racha"}
@@ -337,12 +392,9 @@ export default function HomeScreen() {
             </TouchableOpacity>
           ) : (
             groups.map((group, index) => {
-              const members = (group as any).members ?? [];
-              const memberCount =
-                (group as any).member_count ?? members.length ?? 0;
+              const memberCount = (group as any).member_count ?? 0;
               const color = groupColor(index);
               const icon = groupIcon(index);
-
               return (
                 <TouchableOpacity
                   key={group.id}
@@ -350,34 +402,16 @@ export default function HomeScreen() {
                   onPress={() => router.push(`/group/${group.id}`)}
                   activeOpacity={0.8}
                 >
-                  {/* Left icon */}
-                  <View
-                    style={[styles.groupIcon, { backgroundColor: color + "25" }]}
-                  >
-                    <MaterialCommunityIcons
-                      name={icon as any}
-                      size={22}
-                      color={color}
-                    />
+                  <View style={[styles.groupIcon, { backgroundColor: color + "25" }]}>
+                    <MaterialCommunityIcons name={icon as any} size={22} color={color} />
                   </View>
-
-                  {/* Info */}
                   <View style={styles.groupInfo}>
-                    <Text style={styles.groupName} numberOfLines={1}>
-                      {group.name}
-                    </Text>
+                    <Text style={styles.groupName} numberOfLines={1}>{group.name}</Text>
                     <Text style={styles.groupMeta}>
-                      {memberCount}{" "}
-                      {memberCount === 1 ? "miembro activo" : "miembros activos"}
+                      {memberCount}{" "}{memberCount === 1 ? "miembro activo" : "miembros activos"}
                     </Text>
                   </View>
-
-                  {/* Arrow */}
-                  <MaterialCommunityIcons
-                    name="chevron-right"
-                    size={22}
-                    color={Colors.textMuted}
-                  />
+                  <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.textMuted} />
                 </TouchableOpacity>
               );
             })
@@ -770,7 +804,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     paddingHorizontal: 15,
   },
-  doItBtnText: { color: "#000", fontWeight: "800", fontSize: 14 },
+  doItBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
 
   // ── Empty states ───────────────────────────────────────────────
   emptyState: {

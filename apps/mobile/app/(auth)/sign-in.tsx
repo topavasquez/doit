@@ -240,8 +240,7 @@ export default function SignInScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.hero}>
-          <Text style={styles.logo}>DoIt</Text>
-          <Text style={styles.tagline}>
+<Text style={styles.tagline}>
             Cumple retos. Compite con amigos.{"\n"}Sin excusas.
           </Text>
         </View>
@@ -294,13 +293,6 @@ export default function SignInScreen() {
               Las recompensas son acuerdos sociales, sin apuestas reales.
             </Text>
 
-            <TouchableOpacity
-              onPress={handleSkip}
-              disabled={loading}
-              style={styles.skipBtn}
-            >
-              <Text style={styles.skipText}>Continuar sin cuenta →</Text>
-            </TouchableOpacity>
           </View>
         )}
 

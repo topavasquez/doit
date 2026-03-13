@@ -52,8 +52,8 @@ C:\dev\doit\
 │       │   │   ├── onboarding.tsx         # Username + display name + optional avatar after first login
 │       │   │   └── reset-password.tsx     # New password (×2) after clicking reset email link
 │       │   ├── (tabs)/
-│       │   │   ├── _layout.tsx            # Tab bar (Inicio, Grupos, Competir, Perfil); Inicio header overridden by index.tsx via useLayoutEffect
-│       │   │   ├── index.tsx              # Home — daily progress, stats, 3-tab task list (Hoy/Próximos/Completados), streak pill in header
+│       │   │   ├── _layout.tsx            # Custom animated tab bar — orange sliding line indicator (useSharedValue + withSpring); Inicio header overridden by index.tsx via useLayoutEffect
+│       │   │   ├── index.tsx              # Home — daily progress, stats, 3-tab task list (Hoy/Próximos/Completados); counter animations on focus (countUp + useFocusEffect)
 │       │   │   ├── compete.tsx            # Global leaderboard / compete tab
 │       │   │   ├── groups.tsx             # Groups list — My Groups / Discover tabs
 │       │   │   └── profile.tsx            # User profile — edit modal, stats, friends count, Active/History tabs
@@ -64,7 +64,7 @@ C:\dev\doit\
 │       │   │   └── [id].tsx               # Public user profile — avatar, stats, friends count (read-only)
 │       │   ├── group/
 │       │   │   └── [id].tsx               # Group detail — Retos tab + Chat tab + invite modal
-│       │   ├── premium.tsx                # Premium paywall — free vs premium comparison table, slide_from_bottom animation
+│       │   ├── premium.tsx                # Premium paywall — two-view flow (compare↔plans) with FadeInRight/Left page transitions; ZoomIn crown, FadeInDown table, FadeInUp CTA
 │       │   ├── family/
 │       │   │   ├── [id].tsx               # Family challenge detail — participants, pending checkins, admin approve/reject
 │       │   │   ├── create.tsx             # Create family challenge
@@ -250,6 +250,78 @@ npm run lint           # eslint
 - `QUICK_REACTIONS` — `["+1", "strong", "clap", "fire", "let's go"]`
 - `LEVEL_THRESHOLDS` — XP thresholds for levels 1–11; use `getLevel(xp)` helper
 - `formatRelativeTime(dateStr)` / `formatDaysLeft(endDateStr)` — Spanish locale display
+
+## Animations
+
+**Library:** `react-native-reanimated` (already installed + configured via `react-native-worklets/plugin` in `apps/mobile/babel.config.js`). **Never use `framer-motion`** — it is web-only and has no React Native support.
+
+**When to add animations:** New screens and significant new UI sections should include entrance animations to match the existing feel. Don't animate every element — focus on what the user's eye lands on first.
+
+**Entrance patterns:**
+
+- **Screen/page entrance** — wrap the entire scrollable content in `<Animated.View key={someKey} entering={...}>`. Use `key` to trigger re-mount on view changes.
+- **Hero elements** (icons, titles) — `ZoomIn.duration(400).springify()` for icons/avatars, `FadeInDown.delay(100)` for titles, `FadeInDown.delay(180)` for subtitles.
+- **Cards / lists** — `FadeInDown.delay(n * 60).duration(400).springify().damping(14)` with staggered delays. Keep stagger ≤ 80ms between items.
+- **CTAs / bottom elements** — `FadeInUp.delay(400).duration(350).springify()` so they appear after the content above.
+- **Sectioned content** (tables, grouped blocks) — `FadeInDown.delay(260).duration(400)` as a single unit.
+
+**Directional page transitions** (e.g. `premium.tsx` compare → plans):
+```tsx
+const direction = useRef<'forward' | 'back'>('forward')
+const pageEntering = direction.current === 'forward'
+  ? FadeInRight.duration(350)
+  : FadeInLeft.duration(350)
+// ...
+<Animated.View key={view} entering={pageEntering}>
+  {view === 'compare' ? <CompareView /> : <PlansView />}
+</Animated.View>
+```
+Track direction with `useRef` (not `useState`) to avoid extra re-renders.
+
+**Tab bar sliding indicator** (`(tabs)/_layout.tsx`):
+```tsx
+const TAB_WIDTH = Dimensions.get('window').width / TABS.length
+const LINE_WIDTH = 28
+const lineX = useSharedValue(state.index * TAB_WIDTH + (TAB_WIDTH - LINE_WIDTH) / 2)
+
+useEffect(() => {
+  lineX.value = withSpring(
+    state.index * TAB_WIDTH + (TAB_WIDTH - LINE_WIDTH) / 2,
+    { damping: 18, stiffness: 200, mass: 0.8 }
+  )
+}, [state.index])
+```
+Orange line 2.5px tall, `position: 'absolute'`, `top: 0`, springs between tabs.
+
+**Counter / progress bar animations on screen focus** (`(tabs)/index.tsx`):
+```tsx
+const barWidth = useSharedValue(0)
+const trackWidth = useRef(0)
+
+function countUp(target: number, setter: (v: number) => void, duration = 700) {
+  const steps = Math.min(target, 60)
+  const interval = duration / steps
+  const increment = target / steps
+  let current = 0
+  const t = setInterval(() => {
+    current += increment
+    if (current >= target) { setter(target); clearInterval(t) }
+    else setter(Math.round(current))
+  }, interval)
+  timers.current.push(t)
+}
+
+// Inside useFocusEffect (after all derived data is computed):
+countUp(pct, setDisplayPct, 400)   // percentage — 400ms
+countUp(checks, setDisplayCheckins, 750)
+barWidth.value = withTiming(
+  (pct / 100) * trackWidth.current,
+  { duration: 750, easing: Easing.linear }  // linear — avoid slow-at-end effect
+)
+```
+Clear all timers on cleanup. Track width measured via `onLayout` on the progress bar container. Use `Easing.linear` for progress bars — `Easing.out` or `Easing.cubic` causes visible deceleration near 100%.
+
+**Keep animations off:** Pure data updates, error states, loading spinners, and elements below the fold.
 
 ## UI Design System
 

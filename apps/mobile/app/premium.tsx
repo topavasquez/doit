@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native'
+import Animated, { FadeInDown, FadeInUp, FadeInRight, FadeInLeft, ZoomIn } from 'react-native-reanimated'
 import { useRouter } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useMutation } from '@tanstack/react-query'
@@ -35,6 +36,7 @@ export default function PremiumScreen() {
   const router = useRouter()
   const { user, setUser } = useAuthStore()
   const [view, setView] = useState<View_>('compare')
+  const direction = useRef<'forward' | 'back'>('forward')
 
   const subscribeMutation = useMutation({
     mutationFn: () => usersApi.subscribe(user!.id),
@@ -44,187 +46,189 @@ export default function PremiumScreen() {
     },
   })
 
-  // ── Compare view ──────────────────────────────────────────────────────────
-
-  if (view === 'compare') {
-    return (
-      <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.crownWrap}>
-              <MaterialCommunityIcons name="crown" size={40} color={Colors.primary} />
-            </View>
-            <Text style={styles.title}>
-              DoIt <Text style={{ color: Colors.primary }}>Pro</Text>
-            </Text>
-            <Text style={styles.subtitle}>
-              Todo lo que necesitas para convertir tus hábitos en resultados reales
-            </Text>
-          </View>
-
-          {/* Comparison table */}
-          <View style={styles.table}>
-            {/* Table header */}
-            <View style={styles.tableHeader}>
-              <View style={styles.featureCol} />
-              <View style={styles.planCol}>
-                <Text style={styles.planLabelFree}>Gratis</Text>
-              </View>
-              <View style={styles.planCol}>
-                <View style={styles.premiumBadge}>
-                  <Text style={styles.planLabelPremium}>Pro</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.divider} />
-
-            {/* Rows */}
-            {TABLE_ROWS.map((row, i) => (
-              <View key={i} style={[styles.row, i % 2 === 0 && styles.rowAlt]}>
-                <Text style={styles.rowLabel}>{row.label}</Text>
-                <View style={styles.planCol}>
-                  {typeof row.free === 'boolean'
-                    ? <MaterialCommunityIcons
-                        name={row.free ? 'check' : 'close'}
-                        size={18}
-                        color={row.free ? Colors.textSecondary : Colors.textMuted}
-                      />
-                    : <Text style={styles.rowValueFree}>{row.free}</Text>
-                  }
-                </View>
-                <View style={styles.planCol}>
-                  {typeof row.pro === 'boolean'
-                    ? <MaterialCommunityIcons name="check" size={18} color={Colors.primary} />
-                    : <Text style={styles.rowValuePremium}>{row.pro}</Text>
-                  }
-                </View>
-              </View>
-            ))}
-          </View>
-
-          {/* CTA → plans */}
-          <TouchableOpacity
-            style={styles.primaryBtn}
-            activeOpacity={0.85}
-            onPress={() => setView('plans')}
-          >
-            <Text style={styles.primaryBtnText}>Ver planes</Text>
-            <MaterialCommunityIcons name="arrow-right" size={20} color="#000" />
-          </TouchableOpacity>
-
-          {/* Dismiss */}
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={styles.backText}>Ahora no</Text>
-          </TouchableOpacity>
-
-        </ScrollView>
-      </View>
-    )
+  function goToPlans() {
+    direction.current = 'forward'
+    setView('plans')
   }
 
-  // ── Plans view ────────────────────────────────────────────────────────────
+  function goToCompare() {
+    direction.current = 'back'
+    setView('compare')
+  }
+
+  const pageEntering = direction.current === 'forward'
+    ? FadeInRight.duration(350)
+    : FadeInLeft.duration(350)
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* Back header */}
-        <View style={styles.plansHeader}>
-          <TouchableOpacity style={styles.backArrow} onPress={() => setView('compare')} activeOpacity={0.7}>
-            <MaterialCommunityIcons name="arrow-left" size={22} color={Colors.text} />
-          </TouchableOpacity>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={styles.plansTitle}>Elige tu plan</Text>
-            <Text style={styles.plansSubtitle}>Sin permanencia. Cancela cuando quieras.</Text>
-          </View>
-          {/* spacer to center title */}
-          <View style={{ width: 40 }} />
-        </View>
+        {/* key={view} fuerza remount al cambiar vista, disparando la animación de entrada */}
+        <Animated.View key={view} entering={pageEntering}>
 
-        {/* Plan Familiar — mostrado primero por precio */}
-        <View style={styles.planCardFeatured}>
-          <View style={styles.popularBadge}>
-            <Text style={styles.popularBadgeText}>MÁS POPULAR</Text>
-          </View>
-          <View style={styles.planCardInner}>
-            <View style={styles.planTopRow}>
-              <View>
-                <Text style={styles.planName}>Familiar</Text>
-                <Text style={styles.planSubtitle}>Hasta 6 personas</Text>
+          {view === 'compare' ? (
+            <>
+              {/* Header */}
+              <View style={styles.header}>
+                <Animated.View entering={ZoomIn.duration(400).springify()} style={styles.crownWrap}>
+                  <MaterialCommunityIcons name="crown" size={40} color={Colors.primary} />
+                </Animated.View>
+                <Animated.Text entering={FadeInDown.delay(100).duration(350)} style={styles.title}>
+                  DoIt <Text style={{ color: Colors.primary }}>Pro</Text>
+                </Animated.Text>
+                <Animated.Text entering={FadeInDown.delay(180).duration(350)} style={styles.subtitle}>
+                  Todo lo que necesitas para convertir tus hábitos en resultados reales
+                </Animated.Text>
               </View>
-              <View style={styles.discountBadge}>
-                <Text style={styles.discountBadgeText}>33% descuento</Text>
+
+              {/* Comparison table */}
+              <Animated.View entering={FadeInDown.delay(260).duration(400)} style={styles.table}>
+                <View style={styles.tableHeader}>
+                  <View style={styles.featureCol} />
+                  <View style={styles.planCol}>
+                    <Text style={styles.planLabelFree}>Gratis</Text>
+                  </View>
+                  <View style={styles.planCol}>
+                    <View style={styles.premiumBadge}>
+                      <Text style={styles.planLabelPremium}>Pro</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                {TABLE_ROWS.map((row, i) => (
+                  <View key={i} style={[styles.row, i % 2 === 0 && styles.rowAlt]}>
+                    <Text style={styles.rowLabel}>{row.label}</Text>
+                    <View style={styles.planCol}>
+                      {typeof row.free === 'boolean'
+                        ? <MaterialCommunityIcons
+                            name={row.free ? 'check' : 'close'}
+                            size={18}
+                            color={row.free ? Colors.textSecondary : Colors.textMuted}
+                          />
+                        : <Text style={styles.rowValueFree}>{row.free}</Text>
+                      }
+                    </View>
+                    <View style={styles.planCol}>
+                      {typeof row.pro === 'boolean'
+                        ? <MaterialCommunityIcons name="check" size={18} color={Colors.primary} />
+                        : <Text style={styles.rowValuePremium}>{row.pro}</Text>
+                      }
+                    </View>
+                  </View>
+                ))}
+              </Animated.View>
+
+              <Animated.View entering={FadeInUp.delay(400).duration(350).springify()}>
+                <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85} onPress={goToPlans}>
+                  <Text style={styles.primaryBtnText}>Ver planes</Text>
+                  <MaterialCommunityIcons name="arrow-right" size={20} color="#000" />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+                  <Text style={styles.backText}>Ahora no</Text>
+                </TouchableOpacity>
+              </Animated.View>
+            </>
+          ) : (
+            <>
+              {/* Back header */}
+              <View style={styles.plansHeader}>
+                <TouchableOpacity style={styles.backArrow} onPress={goToCompare} activeOpacity={0.7}>
+                  <MaterialCommunityIcons name="arrow-left" size={22} color={Colors.text} />
+                </TouchableOpacity>
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={styles.plansTitle}>Elige tu plan</Text>
+                  <Text style={styles.plansSubtitle}>Sin permanencia. Cancela cuando quieras.</Text>
+                </View>
+                <View style={{ width: 40 }} />
               </View>
-            </View>
 
-            <View style={styles.priceRow}>
-              <Text style={styles.priceAmount}>$24.990</Text>
-              <Text style={styles.priceUnit}> / $3.990 por persona</Text>
-            </View>
-            <Text style={styles.priceNote}>Invita a tu familia · cada uno paga su suscripción</Text>
-
-            <View style={styles.featureList}>
-              {PRO_FEATURES.map((f) => (
-                <View key={f} style={styles.featureRow}>
-                  <MaterialCommunityIcons name="check-circle" size={18} color={Colors.primary} />
-                  <Text style={styles.featureText}>{f}</Text>
+              {/* Plan Familiar */}
+              <View style={styles.planCardFeatured}>
+                <View style={styles.popularBadge}>
+                  <Text style={styles.popularBadgeText}>MÁS POPULAR</Text>
                 </View>
-              ))}
-            </View>
+                <View style={styles.planCardInner}>
+                  <View style={styles.planTopRow}>
+                    <View>
+                      <Text style={styles.planName}>Familiar</Text>
+                      <Text style={styles.planSubtitle}>Hasta 6 personas</Text>
+                    </View>
+                    <View style={styles.discountBadge}>
+                      <Text style={styles.discountBadgeText}>33% descuento</Text>
+                    </View>
+                  </View>
 
-            <TouchableOpacity
-              style={[styles.planBtn, subscribeMutation.isPending && { opacity: 0.6 }]}
-              activeOpacity={0.85}
-              onPress={() => subscribeMutation.mutate()}
-              disabled={subscribeMutation.isPending}
-            >
-              <Text style={styles.planBtnText}>
-                {subscribeMutation.isPending ? 'Activando...' : 'Suscribirse'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceAmount}>$24.990</Text>
+                    <Text style={styles.priceUnit}> / $3.990 por persona</Text>
+                  </View>
+                  <Text style={styles.priceNote}>Invita a tu familia · cada uno paga su suscripción</Text>
 
-        {/* Plan Individual */}
-        <View style={styles.planCard}>
-          <View style={styles.planCardInner}>
-            <Text style={styles.planName}>Individual</Text>
+                  <View style={styles.featureList}>
+                    {PRO_FEATURES.map((f) => (
+                      <View key={f} style={styles.featureRow}>
+                        <MaterialCommunityIcons name="check-circle" size={18} color={Colors.primary} />
+                        <Text style={styles.featureText}>{f}</Text>
+                      </View>
+                    ))}
+                  </View>
 
-            <View style={styles.priceRow}>
-              <Text style={styles.priceAmount}>$5.990</Text>
-              <Text style={styles.priceUnit}>/mes</Text>
-            </View>
-
-            <View style={styles.featureList}>
-              {PRO_FEATURES.map((f) => (
-                <View key={f} style={styles.featureRow}>
-                  <MaterialCommunityIcons name="check-circle" size={18} color={Colors.primary} />
-                  <Text style={styles.featureText}>{f}</Text>
+                  <TouchableOpacity
+                    style={[styles.planBtn, subscribeMutation.isPending && { opacity: 0.6 }]}
+                    activeOpacity={0.85}
+                    onPress={() => subscribeMutation.mutate()}
+                    disabled={subscribeMutation.isPending}
+                  >
+                    <Text style={styles.planBtnText}>
+                      {subscribeMutation.isPending ? 'Activando...' : 'Suscribirse'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-              ))}
-            </View>
+              </View>
 
-            <TouchableOpacity
-              style={[styles.planBtnOutline, subscribeMutation.isPending && { opacity: 0.6 }]}
-              activeOpacity={0.85}
-              onPress={() => subscribeMutation.mutate()}
-              disabled={subscribeMutation.isPending}
-            >
-              <Text style={styles.planBtnOutlineText}>
-                {subscribeMutation.isPending ? 'Activando...' : 'Suscribirse'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+              {/* Plan Individual */}
+              <View style={styles.planCard}>
+                <View style={styles.planCardInner}>
+                  <Text style={styles.planName}>Individual</Text>
 
-        {/* Dismiss */}
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={styles.backText}>Ahora no</Text>
-        </TouchableOpacity>
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceAmount}>$5.990</Text>
+                    <Text style={styles.priceUnit}>/mes</Text>
+                  </View>
 
+                  <View style={styles.featureList}>
+                    {PRO_FEATURES.map((f) => (
+                      <View key={f} style={styles.featureRow}>
+                        <MaterialCommunityIcons name="check-circle" size={18} color={Colors.primary} />
+                        <Text style={styles.featureText}>{f}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.planBtnOutline, subscribeMutation.isPending && { opacity: 0.6 }]}
+                    activeOpacity={0.85}
+                    onPress={() => subscribeMutation.mutate()}
+                    disabled={subscribeMutation.isPending}
+                  >
+                    <Text style={styles.planBtnOutlineText}>
+                      {subscribeMutation.isPending ? 'Activando...' : 'Suscribirse'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+                <Text style={styles.backText}>Ahora no</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+        </Animated.View>
       </ScrollView>
     </View>
   )
