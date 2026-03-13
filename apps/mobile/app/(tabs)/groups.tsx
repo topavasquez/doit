@@ -43,7 +43,7 @@ export default function GroupsScreen() {
       const res = await groupsApi.acceptInvite(invite.id)
       qc.invalidateQueries({ queryKey: ['groups'] })
       qc.invalidateQueries({ queryKey: ['group-invites'] })
-      router.push(`/group/${res.group.id}`)
+      router.push({ pathname: '/group/[id]', params: { id: res.group.id, openInvite: '1' } })
     } catch {
       Alert.alert('Error', 'No se pudo aceptar la invitación')
     } finally {
@@ -235,7 +235,14 @@ export default function GroupsScreen() {
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity style={styles.fab} onPress={() => setShowCreateModal(true)} activeOpacity={0.85}>
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => {
+          if (!user?.is_pro && groups.length >= 1) { router.push('/premium'); return }
+          setShowCreateModal(true)
+        }}
+        activeOpacity={0.85}
+      >
         <MaterialCommunityIcons name="plus" size={28} color="#000" />
       </TouchableOpacity>
 

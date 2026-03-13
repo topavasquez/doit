@@ -10,13 +10,65 @@ import { usersApi, friendsApi, authApi, ApiError } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { useAuthStore } from '../../store/auth'
 import { INTRO_STORAGE_KEY } from '../../hooks/useAuth'
+import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { Colors } from '../../constants/colors'
 import { ChallengeCard } from '../../components/ChallengeCard'
 import { AvatarPicker } from '../../components/AvatarPicker'
+import { ProBadge } from '../../components/ProBadge'
 import { LEVEL_THRESHOLDS } from '../../constants'
 import type { Challenge, User } from '@doit/shared'
 
-type ProfileTab = 'active' | 'history'
+type ProfileTab = 'active' | 'medals'
+
+// ─── Medal definitions ─────────────────────────────────────────────────────
+type Medal = {
+  id: string
+  title: string
+  subtitle: string
+  icon: string
+  threshold: number
+  iconColor: string
+  glowColor: string
+}
+
+const STREAK_MEDALS: Medal[] = [
+  {
+    id: 'streak_3',
+    title: '3 días',
+    subtitle: 'Primera chispa',
+    icon: 'fire',
+    threshold: 3,
+    iconColor: Colors.primary,
+    glowColor: Colors.primary,
+  },
+  {
+    id: 'streak_31',
+    title: '31 días',
+    subtitle: 'Un mes en llamas',
+    icon: 'fire',
+    threshold: 31,
+    iconColor: Colors.primarySoft,
+    glowColor: Colors.primarySoft,
+  },
+  {
+    id: 'streak_90',
+    title: '90 días',
+    subtitle: 'Hábito forjado',
+    icon: 'shield-check',
+    threshold: 90,
+    iconColor: Colors.study,
+    glowColor: Colors.study,
+  },
+  {
+    id: 'streak_365',
+    title: '365 días',
+    subtitle: 'Leyenda',
+    icon: 'crown',
+    threshold: 365,
+    iconColor: Colors.streakGold,
+    glowColor: Colors.streakGold,
+  },
+]
 
 export default function ProfileScreen() {
   const { user, reset, isLoading, setUser } = useAuthStore()
@@ -64,7 +116,7 @@ export default function ProfileScreen() {
   const xpProgress = xpForNext && user ? Math.min(100, (user.xp / xpForNext) * 100) : 100
 
   const activeChallenges = challenges.filter((c) => c.status === 'active')
-  const completedChallenges = challenges.filter((c) => c.status === 'completed')
+const longestStreak = stats?.longest_streak ?? 0
 
   function openEdit() {
     setEditDisplayName(user?.display_name ?? '')
@@ -164,7 +216,10 @@ export default function ProfileScreen() {
               </View>
             )}
           </View>
-          <Text style={styles.displayName}>{user.display_name ?? user.username}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.displayName}>{user.display_name ?? user.username}</Text>
+            {user.is_pro && <ProBadge size="md" />}
+          </View>
           <Text style={styles.username}>@{user.username}</Text>
 
           <View style={styles.badgeRow}>
@@ -183,6 +238,12 @@ export default function ProfileScreen() {
         <TouchableOpacity style={styles.editBtn} onPress={openEdit}>
           <Text style={styles.editBtnText}>Editar perfil</Text>
         </TouchableOpacity>
+        {!user.is_pro && (
+          <TouchableOpacity style={styles.proBtn} onPress={() => router.push('/premium')} activeOpacity={0.85}>
+            <MaterialCommunityIcons name="crown" size={14} color="#000" />
+            <Text style={styles.proBtnText}>Hazte Pro</Text>
+          </TouchableOpacity>
+        )}
 
         {/* XP bar */}
         <View style={styles.xpSection}>
@@ -221,10 +282,10 @@ export default function ProfileScreen() {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tab, tab === 'history' && styles.tabActive]}
-            onPress={() => setTab('history')}
+            style={[styles.tab, tab === 'medals' && styles.tabActive]}
+            onPress={() => setTab('medals')}
           >
-            <Text style={[styles.tabText, tab === 'history' && styles.tabTextActive]}>Historial</Text>
+            <Text style={[styles.tabText, tab === 'medals' && styles.tabTextActive]}>Medallas</Text>
           </TouchableOpacity>
         </View>
 
@@ -238,13 +299,49 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {tab === 'history' && (
-          <View style={styles.tabContent}>
-            {completedChallenges.length === 0 ? (
-              <Text style={styles.emptyTabText}>Sin retos completados aún</Text>
-            ) : (
-              completedChallenges.slice(0, 10).map((c) => <ChallengeCard key={c.id} challenge={c} />)
-            )}
+        {tab === 'medals' && (
+          <View style={styles.medalsGrid}>
+            {STREAK_MEDALS.map((medal) => {
+              const earned = longestStreak >= medal.threshold
+              return (
+                <View
+                  key={medal.id}
+                  style={[styles.medalCard, earned && { borderColor: medal.glowColor + '50' }]}
+                >
+                  <View style={[
+                    styles.medalIconWrap,
+                    earned
+                      ? { backgroundColor: medal.glowColor + '20', borderColor: medal.glowColor + '40' }
+                      : styles.medalIconWrapLocked,
+                  ]}>
+                    <MaterialCommunityIcons
+                      name={medal.icon as any}
+                      size={36}
+                      color={earned ? medal.iconColor : Colors.textMuted}
+                      style={earned ? {
+                        textShadowColor: medal.glowColor,
+                        textShadowOffset: { width: 0, height: 0 },
+                        textShadowRadius: 12,
+                      } : undefined}
+                    />
+                  </View>
+                  <Text style={[styles.medalTitle, earned && { color: Colors.text }]}>
+                    {medal.title}
+                  </Text>
+                  <Text style={styles.medalSubtitle}>{medal.subtitle}</Text>
+                  <View style={[styles.medalStatus, earned && styles.medalStatusEarned]}>
+                    <MaterialCommunityIcons
+                      name={earned ? 'check-circle' : 'lock-outline'}
+                      size={11}
+                      color={earned ? medal.iconColor : Colors.textMuted}
+                    />
+                    <Text style={[styles.medalStatusText, earned && { color: medal.iconColor }]}>
+                      {earned ? 'Desbloqueada' : `${medal.threshold} días`}
+                    </Text>
+                  </View>
+                </View>
+              )
+            })}
           </View>
         )}
 
@@ -356,6 +453,7 @@ const styles = StyleSheet.create({
     borderWidth: 3, borderColor: Colors.primaryDim,
   },
   avatarText: { color: '#000', fontWeight: '900', fontSize: 38 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   displayName: { color: Colors.text, fontSize: 22, fontWeight: '800', marginBottom: 4 },
   username: { color: Colors.textSecondary, fontSize: 15, marginBottom: 14 },
   badgeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginBottom: 16 },
@@ -374,6 +472,18 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   editBtnText: { color: Colors.text, fontWeight: '700', fontSize: 14 },
+  proBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginTop: 8,
+  },
+  proBtnText: { color: '#000', fontWeight: '800', fontSize: 13 },
 
   xpSection: { marginBottom: 20, gap: 8 },
   xpRow: { flexDirection: 'row', justifyContent: 'space-between' },
@@ -403,6 +513,36 @@ const styles = StyleSheet.create({
   tabTextActive: { color: '#000' },
   tabContent: {},
   emptyTabText: { color: Colors.textMuted, textAlign: 'center', paddingVertical: 36, fontSize: 15 },
+
+  // Medals
+  medalsGrid: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 12,
+  },
+  medalCard: {
+    width: '47.5%',
+    backgroundColor: Colors.surface,
+    borderRadius: 18, borderWidth: 1, borderColor: Colors.border,
+    padding: 16, alignItems: 'center', gap: 8,
+  },
+  medalIconWrap: {
+    width: 68, height: 68, borderRadius: 34,
+    borderWidth: 1.5,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 2,
+  },
+  medalIconWrapLocked: {
+    backgroundColor: Colors.surfaceElevated, borderColor: Colors.border,
+  },
+  medalTitle: { color: Colors.textMuted, fontSize: 17, fontWeight: '900', textAlign: 'center' },
+  medalSubtitle: { color: Colors.textMuted, fontSize: 12, fontWeight: '500', textAlign: 'center' },
+  medalStatus: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: Colors.surfaceElevated, borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  medalStatusEarned: { borderColor: 'transparent' },
+  medalStatusText: { color: Colors.textMuted, fontSize: 10, fontWeight: '700' },
 
   signOutBtn: {
     marginTop: 24, backgroundColor: Colors.surface, borderRadius: 14,

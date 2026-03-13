@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Image, ActivityIndicator } from 'react-native'
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Image, ActivityIndicator, ImageStyle, Modal, Alert, Dimensions, SafeAreaView, Platform } from 'react-native'
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router'
+import { MaterialCommunityIcons } from '@expo/vector-icons'
+import * as FileSystem from 'expo-file-system/legacy'
+import * as Sharing from 'expo-sharing'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { challengesApi, checkinsApi, leaderboardApi } from '../../lib/api'
 import { LeaderboardItem } from '../../components/LeaderboardItem'
@@ -9,13 +12,13 @@ import { HABIT_CATEGORY_CONFIG, formatDaysLeft, formatRelativeTime } from '../..
 import { useAuth } from '../../hooks/useAuth'
 import type { Challenge, ChallengeParticipant, Checkin } from '@doit/shared'
 
-type Tab = 'leaderboard' | 'activity'
+type Tab = 'leaderboard' | 'activity' | 'progress'
 
 const PODIUM_COLORS = ['#f0a500', '#9CA3AF', '#CD7C2F']
 const PODIUM_LABELS = ['1°', '2°', '3°']
 
 type LbEntry = {
-  rank: number; user_id: string; username: string; display_name?: string | null
+  rank: number; user_id: string; username: string; display_name?: string | null; avatar_url?: string | null
   streak_current: number; total_checkins: number; completion_pct: number; is_me: boolean
 }
 
@@ -27,11 +30,15 @@ function PodiumCard({ entry, rank, ghost_mode }: { entry: LbEntry; rank: 1 | 2 |
       <View style={[podStyles.medalWrap, { backgroundColor: color + '20' }]}>
         <Text style={[podStyles.medalText, { color }]}>{PODIUM_LABELS[rank - 1]}</Text>
       </View>
-      <View style={[podStyles.avatar, { backgroundColor: color + '25', borderColor: color + '50' }]}>
-        <Text style={[podStyles.avatarText, { color }]}>
-          {entry.username[0]?.toUpperCase() ?? '?'}
-        </Text>
-      </View>
+      {entry.avatar_url ? (
+        <Image source={{ uri: entry.avatar_url }} style={[podStyles.avatar, { borderColor: color + '50' }] as ImageStyle} />
+      ) : (
+        <View style={[podStyles.avatar, { backgroundColor: color + '25', borderColor: color + '50' }]}>
+          <Text style={[podStyles.avatarText, { color }]}>
+            {entry.username[0]?.toUpperCase() ?? '?'}
+          </Text>
+        </View>
+      )}
       <Text style={podStyles.name} numberOfLines={1}>{entry.display_name ?? entry.username}</Text>
       {!ghost_mode && (
         <Text style={[podStyles.pts, { color }]}>{entry.total_checkins} pts</Text>
@@ -40,12 +47,264 @@ function PodiumCard({ entry, rank, ghost_mode }: { entry: LbEntry; rank: 1 | 2 |
   )
 }
 
+// ─── Personal Progress View ───────────────────────────────────────────────────
+
+type PersonalProgressViewProps = {
+  challenge: Challenge & { group?: { name: string } }
+  myParticipation: ChallengeParticipant | null
+  checkins: (Checkin & { user?: { username: string } })[]
+}
+
+const DAY_LABELS = ['D', 'L', 'M', 'X', 'J', 'V', 'S']
+
+function PersonalProgressView({ challenge, myParticipation, checkins }: PersonalProgressViewProps) {
+  const streakCurrent = myParticipation?.streak_current ?? 0
+  const streakLongest = myParticipation?.streak_longest ?? 0
+  const totalCheckins = myParticipation?.total_checkins ?? 0
+  const durationDays = challenge.duration_days ?? 30
+
+  // Build set of checked-in calendar dates
+  const checkedDates = new Set(
+    checkins.map((c) => {
+      const d = new Date(c.checked_in_at)
+      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+    })
+  )
+
+  // Build array of all challenge days
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const startDate = challenge.start_date ? new Date(challenge.start_date) : today
+  startDate.setHours(0, 0, 0, 0)
+
+  const days: { date: Date; done: boolean; isToday: boolean; isFuture: boolean }[] = []
+  for (let i = 0; i < durationDays; i++) {
+    const d = new Date(startDate)
+    d.setDate(startDate.getDate() + i)
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+    const isToday = d.getTime() === today.getTime()
+    const isFuture = d.getTime() > today.getTime()
+    days.push({ date: d, done: checkedDates.has(key), isToday, isFuture })
+  }
+
+  const completionPct = durationDays > 0 ? Math.round((totalCheckins / durationDays) * 100) : 0
+
+  return (
+    <View style={ppStyles.container}>
+      {/* Stats comparison */}
+      <View style={ppStyles.statsRow}>
+        <View style={ppStyles.statCard}>
+          <MaterialCommunityIcons name="fire" size={22} color={Colors.streakFire} />
+          <Text style={ppStyles.statValue}>{streakCurrent}</Text>
+          <Text style={ppStyles.statLabel}>Racha actual</Text>
+        </View>
+        <View style={ppStyles.statDivider} />
+        <View style={ppStyles.statCard}>
+          <MaterialCommunityIcons name="trophy-outline" size={22} color={Colors.primary} />
+          <Text style={ppStyles.statValue}>{streakLongest}</Text>
+          <Text style={ppStyles.statLabel}>Mejor racha</Text>
+        </View>
+        <View style={ppStyles.statDivider} />
+        <View style={ppStyles.statCard}>
+          <MaterialCommunityIcons name="check-circle-outline" size={22} color={Colors.primary} />
+          <Text style={ppStyles.statValue}>{completionPct}%</Text>
+          <Text style={ppStyles.statLabel}>Completado</Text>
+        </View>
+      </View>
+
+      {/* Streak bar comparison */}
+      {streakLongest > 0 && (
+        <View style={ppStyles.compareCard}>
+          <Text style={ppStyles.compareTitle}>RACHA ACTUAL VS RÉCORD</Text>
+          <View style={ppStyles.compareRow}>
+            <Text style={ppStyles.compareLabel}>Ahora</Text>
+            <View style={ppStyles.barTrack}>
+              <View
+                style={[
+                  ppStyles.barFill,
+                  {
+                    width: `${Math.round((streakCurrent / streakLongest) * 100)}%` as `${number}%`,
+                    backgroundColor: Colors.streakFire,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={ppStyles.compareNum}>{streakCurrent}</Text>
+          </View>
+          <View style={ppStyles.compareRow}>
+            <Text style={ppStyles.compareLabel}>Récord</Text>
+            <View style={ppStyles.barTrack}>
+              <View
+                style={[
+                  ppStyles.barFill,
+                  { width: '100%' as `${number}%`, backgroundColor: Colors.primary + '60' },
+                ]}
+              />
+            </View>
+            <Text style={ppStyles.compareNum}>{streakLongest}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Calendar grid */}
+      <View style={ppStyles.calendarCard}>
+        <Text style={ppStyles.calendarTitle}>DÍAS DEL RETO</Text>
+        <View style={ppStyles.calendarGrid}>
+          {days.map((item, idx) => {
+            const dayLabel = DAY_LABELS[item.date.getDay()]
+            return (
+              <View key={idx} style={ppStyles.dayCell}>
+                <View
+                  style={[
+                    ppStyles.dayCircle,
+                    item.done && ppStyles.dayCircleDone,
+                    item.isToday && !item.done && ppStyles.dayCircleToday,
+                    item.isFuture && ppStyles.dayCircleFuture,
+                  ]}
+                >
+                  {item.done ? (
+                    <MaterialCommunityIcons name="check" size={12} color="#000" />
+                  ) : (
+                    <Text
+                      style={[
+                        ppStyles.dayNum,
+                        item.isToday && ppStyles.dayNumToday,
+                        item.isFuture && ppStyles.dayNumFuture,
+                      ]}
+                    >
+                      {idx + 1}
+                    </Text>
+                  )}
+                </View>
+                <Text style={ppStyles.dayLabel}>{dayLabel}</Text>
+              </View>
+            )
+          })}
+        </View>
+      </View>
+    </View>
+  )
+}
+
+const ppStyles = StyleSheet.create({
+  container: { gap: 16 },
+
+  statsRow: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+  },
+  statCard: { flex: 1, alignItems: 'center', gap: 4 },
+  statValue: { color: Colors.text, fontSize: 22, fontWeight: '900' },
+  statLabel: { color: Colors.textMuted, fontSize: 11, fontWeight: '600', textAlign: 'center' },
+  statDivider: { width: 1, height: 40, backgroundColor: Colors.border },
+
+  compareCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 10,
+  },
+  compareTitle: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  compareRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  compareLabel: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600', width: 44 },
+  barTrack: {
+    flex: 1,
+    height: 10,
+    backgroundColor: Colors.border,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  barFill: { height: '100%', borderRadius: 5 },
+  compareNum: { color: Colors.text, fontSize: 13, fontWeight: '800', width: 24, textAlign: 'right' },
+
+  calendarCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 14,
+    marginBottom: 8,
+  },
+  calendarTitle: {
+    color: Colors.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  dayCell: { alignItems: 'center', gap: 3 },
+  dayCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayCircleDone: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  dayCircleToday: {
+    borderColor: Colors.primary,
+    borderWidth: 2,
+  },
+  dayCircleFuture: {
+    opacity: 0.35,
+  },
+  dayNum: { color: Colors.textSecondary, fontSize: 11, fontWeight: '700' },
+  dayNumToday: { color: Colors.primary },
+  dayNumFuture: { color: Colors.textMuted },
+  dayLabel: { color: Colors.textMuted, fontSize: 9, fontWeight: '600' },
+})
+
 export default function ChallengeScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, initialTab } = useLocalSearchParams<{ id: string; initialTab?: Tab }>()
   const { user } = useAuth()
   const qc = useQueryClient()
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<Tab>('leaderboard')
+  const [activeTab, setActiveTab] = useState<Tab | null>(
+    initialTab === 'activity' ? 'activity' : null
+  )
+  const [photoModal, setPhotoModal] = useState<{ uri: string; username: string } | null>(null)
+  const [sharing, setSharing] = useState(false)
+  const isNative = Platform.OS === 'ios' || Platform.OS === 'android'
+
+  async function handleSharePhoto(remoteUri: string) {
+    if (sharing) return
+    setSharing(true)
+    try {
+      const ext = remoteUri.split('?')[0].split('.').pop()?.toLowerCase() ?? 'jpg'
+      const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg'
+      const localUri = `${FileSystem.cacheDirectory}doit_share_${Date.now()}.${ext}`
+      const { uri } = await FileSystem.downloadAsync(remoteUri, localUri)
+      await Sharing.shareAsync(uri, { mimeType, UTI: 'public.image', dialogTitle: 'Compartir foto de DoIt' })
+    } catch (err) {
+      Alert.alert('Error al compartir', err instanceof Error ? err.message : String(err))
+    } finally {
+      setSharing(false)
+    }
+  }
 
   const { data: challengeData, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['challenge', id],
@@ -62,7 +321,7 @@ export default function ChallengeScreen() {
   const { data: checkinsData, refetch: refetchCheckins } = useQuery({
     queryKey: ['checkins', id],
     queryFn: () => checkinsApi.list(id, undefined, 20),
-    enabled: activeTab === 'activity',
+    enabled: !!id,
   })
 
   const challenge = challengeData?.challenge as (Challenge & { group?: { name: string } }) | undefined
@@ -83,6 +342,9 @@ export default function ChallengeScreen() {
       </View>
     )
   }
+
+  const isPersonal = !challenge?.group_id
+  const effectiveTab: Tab = activeTab ?? (isPersonal ? 'progress' : 'leaderboard')
 
   const daysLeft = challenge.end_date ? formatDaysLeft(challenge.end_date) : `${challenge.duration_days}d`
   const isGhost = lbData?.ghost_mode
@@ -150,9 +412,6 @@ export default function ChallengeScreen() {
                   <Text style={styles.doneIcon}>✓</Text>
                   <Text style={styles.doneText}>Ya hiciste check-in hoy</Text>
                 </View>
-                {myParticipation.streak_current > 0 && (
-                  <Text style={styles.streakLabel}>{myParticipation.streak_current} dias de racha</Text>
-                )}
               </View>
             ) : (
               <TouchableOpacity
@@ -174,22 +433,41 @@ export default function ChallengeScreen() {
 
         {/* Tabs */}
         <View style={styles.tabs}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'leaderboard' && styles.tabActive]}
-            onPress={() => setActiveTab('leaderboard')}
-          >
-            <Text style={[styles.tabText, activeTab === 'leaderboard' && styles.tabTextActive]}>Clasificación</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'activity' && styles.tabActive]}
-            onPress={() => setActiveTab('activity')}
-          >
-            <Text style={[styles.tabText, activeTab === 'activity' && styles.tabTextActive]}>Actividad</Text>
-          </TouchableOpacity>
+          {isPersonal ? (
+            <>
+              <TouchableOpacity
+                style={[styles.tab, effectiveTab === 'progress' && styles.tabActive]}
+                onPress={() => setActiveTab('progress')}
+              >
+                <Text style={[styles.tabText, effectiveTab === 'progress' && styles.tabTextActive]}>Mi Progreso</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tab, effectiveTab === 'activity' && styles.tabActive]}
+                onPress={() => setActiveTab('activity')}
+              >
+                <Text style={[styles.tabText, effectiveTab === 'activity' && styles.tabTextActive]}>Actividad</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[styles.tab, effectiveTab === 'leaderboard' && styles.tabActive]}
+                onPress={() => setActiveTab('leaderboard')}
+              >
+                <Text style={[styles.tabText, effectiveTab === 'leaderboard' && styles.tabTextActive]}>Clasificación</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tab, effectiveTab === 'activity' && styles.tabActive]}
+                onPress={() => setActiveTab('activity')}
+              >
+                <Text style={[styles.tabText, effectiveTab === 'activity' && styles.tabTextActive]}>Actividad</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         {/* Leaderboard */}
-        {activeTab === 'leaderboard' && (
+        {effectiveTab === 'leaderboard' && (
           <View>
             {isGhost && (
               <View style={styles.ghostBanner}>
@@ -217,6 +495,7 @@ export default function ChallengeScreen() {
                 rank={entry.rank}
                 username={entry.username}
                 display_name={entry.display_name}
+                avatar_url={entry.avatar_url}
                 streak_current={entry.streak_current}
                 total_checkins={entry.total_checkins}
                 completion_pct={entry.completion_pct}
@@ -231,8 +510,17 @@ export default function ChallengeScreen() {
           </View>
         )}
 
+        {/* Personal Progress Tab */}
+        {effectiveTab === 'progress' && isPersonal && (
+          <PersonalProgressView
+            challenge={challenge}
+            myParticipation={myParticipation}
+            checkins={checkins}
+          />
+        )}
+
         {/* Activity */}
-        {activeTab === 'activity' && (
+        {effectiveTab === 'activity' && (
           <View>
             {checkins.length === 0 ? (
               <Text style={styles.emptyText}>Sin check-ins aún. ¡Sé el primero!</Text>
@@ -251,7 +539,16 @@ export default function ChallengeScreen() {
                       {c.notes ? ` — "${c.notes}"` : ''}
                     </Text>
                     {c.photo_url && (
-                      <Image source={{ uri: c.photo_url }} style={styles.activityPhoto} resizeMode="cover" />
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => setPhotoModal({ uri: c.photo_url!, username: c.user?.username ?? '' })}
+                      >
+                        <Image source={{ uri: c.photo_url }} style={styles.activityPhoto} resizeMode="cover" />
+                        <View style={styles.photoExpandHint}>
+                          <MaterialCommunityIcons name="magnify-plus-outline" size={14} color="#fff" />
+                          <Text style={styles.photoExpandText}>Toca para ampliar</Text>
+                        </View>
+                      </TouchableOpacity>
                     )}
                     <Text style={styles.activityTime}>{formatRelativeTime(c.checked_in_at)}</Text>
                   </View>
@@ -261,6 +558,47 @@ export default function ChallengeScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Photo fullscreen modal */}
+      <Modal visible={!!photoModal} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setPhotoModal(null)}>
+        <SafeAreaView style={styles.photoModalBg}>
+          {/* Close */}
+          <TouchableOpacity style={styles.photoModalClose} onPress={() => setPhotoModal(null)}>
+            <MaterialCommunityIcons name="close" size={26} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Photo */}
+          {photoModal && (
+            <Image
+              source={{ uri: photoModal.uri }}
+              style={styles.photoModalImg}
+              resizeMode="contain"
+            />
+          )}
+
+          {/* Bottom bar */}
+          <View style={styles.photoModalBottom}>
+            <View style={styles.photoModalBranding}>
+              <Text style={styles.photoModalBrandDo}>Do</Text>
+              <Text style={styles.photoModalBrandIt}>It</Text>
+              <Text style={styles.photoModalBrandTag}>APP</Text>
+            </View>
+            {isNative && (
+              <TouchableOpacity
+                style={[styles.photoShareBtn, sharing && styles.photoShareBtnDisabled]}
+                onPress={() => photoModal && handleSharePhoto(photoModal.uri)}
+                disabled={sharing}
+              >
+                {sharing
+                  ? <ActivityIndicator size="small" color="#000" />
+                  : <MaterialCommunityIcons name="share-variant" size={20} color="#000" />
+                }
+                <Text style={styles.photoShareText}>{sharing ? 'Preparando...' : 'Compartir'}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </SafeAreaView>
+      </Modal>
     </>
   )
 }
@@ -435,6 +773,52 @@ const styles = StyleSheet.create({
   activityInfo: { flex: 1 },
   activityText: { color: Colors.textSecondary, fontSize: 14, lineHeight: 20 },
   activityUsername: { color: Colors.text, fontWeight: '700' },
-  activityPhoto: { width: '100%', height: 180, borderRadius: 10, marginTop: 8 },
+  activityPhoto: { width: '100%', aspectRatio: 3 / 4, borderRadius: 10, marginTop: 8 },
+  photoExpandHint: {
+    position: 'absolute', bottom: 8, right: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 4,
+  },
+  photoExpandText: { color: '#fff', fontSize: 11, fontWeight: '600' },
   activityTime: { color: Colors.textMuted, fontSize: 12, marginTop: 2 },
+
+  // Photo modal
+  photoModalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.97)',
+    justifyContent: 'space-between',
+  },
+  photoModalClose: {
+    alignSelf: 'flex-end',
+    margin: 16,
+    padding: 6,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 20,
+  },
+  photoModalImg: {
+    width: Dimensions.get('window').width,
+    aspectRatio: 3 / 4,
+    maxHeight: Dimensions.get('window').height * 0.72,
+  },
+  photoModalBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  photoModalBranding: { flexDirection: 'row', alignItems: 'baseline', gap: 1 },
+  photoModalBrandDo: { color: Colors.primary, fontSize: 26, fontWeight: '900', letterSpacing: -0.5 },
+  photoModalBrandIt: { color: '#fff', fontSize: 26, fontWeight: '900', letterSpacing: -0.5 },
+  photoModalBrandTag: { color: Colors.textMuted, fontSize: 12, fontWeight: '700', marginLeft: 4 },
+  photoShareBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.primary, borderRadius: 14,
+    paddingHorizontal: 20, paddingVertical: 12,
+  },
+  photoShareBtnDisabled: { opacity: 0.6 },
+  photoShareText: { color: '#000', fontWeight: '800', fontSize: 15 },
 })

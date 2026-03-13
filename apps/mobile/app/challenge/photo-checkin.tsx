@@ -47,7 +47,7 @@ export default function PhotoCheckinScreen() {
       mediaTypes: ['images'],
       quality: 0.8,
       allowsEditing: true,
-      aspect: [4, 3],
+      aspect: [3, 4],
       base64: true,
     })
 
@@ -88,15 +88,10 @@ export default function PhotoCheckinScreen() {
       if (groupId) qc.invalidateQueries({ queryKey: ['group', groupId] })
 
       const navigate = () => {
-        if (groupId) {
-          // Ir al feed del grupo para ver la foto publicada
-          router.replace({
-            pathname: '/group/[id]',
-            params: { id: groupId, initialTab: 'feed' },
-          })
-        } else {
-          router.back()
-        }
+        router.replace({
+          pathname: '/challenge/[id]',
+          params: { id: challengeId, ...(groupId ? { initialTab: 'activity' } : {}) },
+        })
       }
 
       if (result.streak > 0 && [7, 14, 21, 30, 60, 90].includes(result.streak)) {
@@ -134,7 +129,7 @@ export default function PhotoCheckinScreen() {
             const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
             if (!permission.granted) return
             const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ['images'], quality: 0.8, allowsEditing: true, aspect: [4, 3], base64: true,
+              mediaTypes: ['images'], quality: 0.8, allowsEditing: true, aspect: [3, 4], base64: true,
             })
             if (!result.canceled && result.assets[0]) {
               setPhotoUri(result.assets[0].uri)
@@ -181,20 +176,22 @@ export default function PhotoCheckinScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Nota opcional */}
-          <View style={styles.notesWrap}>
-            <Text style={styles.notesLabel}>Agrega una nota (opcional)</Text>
-            <TextInput
-              style={styles.notesInput}
-              placeholder="Cuéntale a tu grupo cómo te fue..."
-              placeholderTextColor={Colors.textMuted}
-              value={notes}
-              onChangeText={setNotes}
-              multiline
-              maxLength={300}
-              editable={!isLoading}
-            />
-          </View>
+          {/* Nota opcional — solo para retos de grupo */}
+          {!!groupId && (
+            <View style={styles.notesWrap}>
+              <Text style={styles.notesLabel}>Agrega una nota (opcional)</Text>
+              <TextInput
+                style={styles.notesInput}
+                placeholder="Cuéntale a tu grupo cómo te fue..."
+                placeholderTextColor={Colors.textMuted}
+                value={notes}
+                onChangeText={setNotes}
+                multiline
+                maxLength={300}
+                editable={!isLoading}
+              />
+            </View>
+          )}
 
           {/* Botón enviar */}
           <TouchableOpacity
@@ -211,7 +208,7 @@ export default function PhotoCheckinScreen() {
                 </Text>
               </View>
             ) : (
-              <Text style={styles.submitText}>Enviar al grupo</Text>
+              <Text style={styles.submitText}>{groupId ? 'Enviar al grupo' : '¡Lo hice!'}</Text>
             )}
           </TouchableOpacity>
 
@@ -246,7 +243,7 @@ const styles = StyleSheet.create({
   heading: { color: Colors.text, fontSize: 22, fontWeight: '800', marginTop: -4 },
 
   previewWrap: { gap: 12 },
-  preview: { width: '100%', height: 280, borderRadius: 18 },
+  preview: { width: '100%', aspectRatio: 3 / 4, borderRadius: 18 },
   retakeBtn: {
     backgroundColor: Colors.surface,
     borderRadius: 12,

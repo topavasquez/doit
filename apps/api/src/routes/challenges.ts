@@ -5,7 +5,7 @@ import { leaderboard, rateLimiter, redis } from '../plugins/redis'
 import { requireAuth } from '../middleware/auth'
 
 const createChallengeSchema = z.object({
-  group_id: z.string().uuid(),
+  group_id: z.string().uuid().optional().nullable(),
   title: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   habit_category: z.enum(['gym', 'reading', 'sleep', 'diet', 'study', 'custom']),
@@ -29,17 +29,20 @@ export async function challengeRoutes(app: FastifyInstance) {
       }
 
       const { group_id, duration_days, start_date, ...rest } = parsed.data
+      const isPersonal = !group_id
 
-      // Must be a group member
-      const membership = await prisma.groupMember.findUnique({
-        where: { group_id_user_id: { group_id, user_id: request.userId } },
-      })
-
-      if (!membership) {
-        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Must be a group member to create a challenge' })
+      // Group challenges: must be a member
+      if (group_id) {
+        const membership = await prisma.groupMember.findUnique({
+          where: { group_id_user_id: { group_id, user_id: request.userId } },
+        })
+        if (!membership) {
+          return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Must be a group member to create a challenge' })
+        }
       }
 
-      const startDate = start_date ? new Date(start_date) : null
+      // Personal challenges auto-start immediately; group challenges start manually later
+      const startDate = isPersonal ? new Date() : (start_date ? new Date(start_date) : null)
       const endDate = startDate
         ? new Date(new Date(startDate).setDate(startDate.getDate() + duration_days))
         : null
@@ -47,11 +50,12 @@ export async function challengeRoutes(app: FastifyInstance) {
       const challenge = await prisma.challenge.create({
         data: {
           ...rest,
-          group_id,
+          group_id: group_id ?? null,
           created_by: request.userId,
           duration_days,
           start_date: startDate,
           end_date: endDate,
+          status: isPersonal ? 'active' : 'pending',
           participants: {
             create: { user_id: request.userId },
           },
@@ -61,6 +65,13 @@ export async function challengeRoutes(app: FastifyInstance) {
           participants: { where: { user_id: request.userId }, take: 1 },
         },
       })
+
+      // Seed Redis leaderboard for personal challenges immediately
+      if (isPersonal) {
+        try {
+          await leaderboard.seedFromDb(challenge.id, [{ userId: request.userId, score: 0 }])
+        } catch { /* Redis optional */ }
+      }
 
       return reply.status(201).send({ challenge })
     },
@@ -90,19 +101,26 @@ export async function challengeRoutes(app: FastifyInstance) {
         return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Challenge not found' })
       }
 
-      // Must be a group member
-      const membership = await prisma.groupMember.findUnique({
-        where: { group_id_user_id: { group_id: challenge.group_id, user_id: request.userId } },
-      })
-
-      if (!membership) {
-        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Not authorized' })
+      if (challenge.group_id) {
+        // Group challenge: must be a group member
+        const membership = await prisma.groupMember.findUnique({
+          where: { group_id_user_id: { group_id: challenge.group_id, user_id: request.userId } },
+        })
+        if (!membership) {
+          return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Not authorized' })
+        }
+      } else {
+        // Personal challenge: must be the creator or a participant
+        const isParticipant = challenge.participants.some((p) => p.user_id === request.userId)
+        if (!isParticipant && challenge.created_by !== request.userId) {
+          return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Not authorized' })
+        }
       }
 
       let myParticipation = challenge.participants.find((p) => p.user_id === request.userId) ?? null
 
-      // Auto-join active challenges when a group member views them without a participation record
-      if (!myParticipation && challenge.status === 'active') {
+      // Auto-join active GROUP challenges when a group member views them without a participation record
+      if (!myParticipation && challenge.status === 'active' && challenge.group_id) {
         const newParticipant = await prisma.challengeParticipant.create({
           data: { challenge_id: id, user_id: request.userId },
           include: {
@@ -149,12 +167,16 @@ export async function challengeRoutes(app: FastifyInstance) {
         return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Challenge not found' })
       }
 
-      // Only creator or group admin can update
-      const membership = await prisma.groupMember.findUnique({
-        where: { group_id_user_id: { group_id: challenge.group_id, user_id: request.userId } },
-      })
+      // Personal challenge: only creator; group challenge: creator or group admin
+      let isAdmin = false
+      if (challenge.group_id) {
+        const membership = await prisma.groupMember.findUnique({
+          where: { group_id_user_id: { group_id: challenge.group_id, user_id: request.userId } },
+        })
+        isAdmin = membership?.role === 'admin'
+      }
 
-      if (challenge.created_by !== request.userId && membership?.role !== 'admin') {
+      if (challenge.created_by !== request.userId && !isAdmin) {
         return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Not authorized to update this challenge' })
       }
 
@@ -215,7 +237,7 @@ export async function challengeRoutes(app: FastifyInstance) {
         await leaderboard.seedFromDb(id, participants.map((p) => ({ userId: p.user_id, score: p.total_checkins })))
       } catch { /* Redis unavailable, skip */ }
 
-      // Create notifications for all participants
+      // Notify other participants
       const otherParticipants = participants.filter((p) => p.user_id !== request.userId)
       if (otherParticipants.length > 0) {
         await prisma.notification.createMany({
@@ -246,11 +268,15 @@ export async function challengeRoutes(app: FastifyInstance) {
         return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Challenge not found' })
       }
 
-      const membership = await prisma.groupMember.findUnique({
-        where: { group_id_user_id: { group_id: challenge.group_id, user_id: request.userId } },
-      })
+      let isAdmin = false
+      if (challenge.group_id) {
+        const membership = await prisma.groupMember.findUnique({
+          where: { group_id_user_id: { group_id: challenge.group_id, user_id: request.userId } },
+        })
+        isAdmin = membership?.role === 'admin'
+      }
 
-      if (challenge.created_by !== request.userId && membership?.role !== 'admin') {
+      if (challenge.created_by !== request.userId && !isAdmin) {
         return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Not authorized' })
       }
 
@@ -284,6 +310,11 @@ export async function challengeRoutes(app: FastifyInstance) {
         return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Challenge not found' })
       }
 
+      // Personal challenges cannot be joined by others
+      if (!challenge.group_id) {
+        return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Personal challenges cannot be joined' })
+      }
+
       if (!['pending', 'active'].includes(challenge.status)) {
         return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Can only join pending or active challenges' })
       }
@@ -302,7 +333,6 @@ export async function challengeRoutes(app: FastifyInstance) {
         create: { challenge_id: id, user_id: request.userId },
       })
 
-      // If the challenge is already active, seed the new participant into the Redis leaderboard
       if (challenge.status === 'active') {
         try {
           const lbKey = leaderboard.key(id)

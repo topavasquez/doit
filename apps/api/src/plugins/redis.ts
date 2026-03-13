@@ -58,6 +58,10 @@ export const leaderboard = {
     return rank !== null ? rank + 1 : null;
   },
 
+  async removeUser(challengeId: string, userId: string): Promise<void> {
+    await redis.zrem(leaderboard.key(challengeId), userId);
+  },
+
   async deleteChallenge(challengeId: string): Promise<void> {
     await redis.del(leaderboard.key(challengeId));
   },

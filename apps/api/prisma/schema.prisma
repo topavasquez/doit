@@ -21,6 +21,7 @@ model User {
   streak_longest         Int                    @default(0)
   last_checkin_date      DateTime?              @db.Date
   timezone               String                 @default("UTC")
+  is_pro                 Boolean                @default(false)
   created_at             DateTime               @default(now()) @db.Timestamptz(6)
   deleted_at             DateTime?              @db.Timestamptz(6)
   challenge_participants ChallengeParticipant[]
@@ -58,6 +59,8 @@ model Group {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name        String
   avatar_url  String?
+  cover_image String?
+  cover_color String?
   created_by  String         @db.Uuid
   invite_code String         @unique
   created_at  DateTime       @default(now()) @db.Timestamptz(6)
@@ -100,7 +103,7 @@ model GroupMember {
 
 model Challenge {
   id                 String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  group_id           String                 @db.Uuid
+  group_id           String?                @db.Uuid
   created_by         String                 @db.Uuid
   title              String
   description        String?
@@ -115,7 +118,7 @@ model Challenge {
   created_at         DateTime               @default(now()) @db.Timestamptz(6)
   participants       ChallengeParticipant[]
   creator            User                   @relation(fields: [created_by], references: [id])
-  group              Group                  @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  group              Group?                 @relation(fields: [group_id], references: [id], onDelete: Cascade)
   checkins           Checkin[]
   snapshots          LeaderboardSnapshot[]
 

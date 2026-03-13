@@ -8,6 +8,7 @@ const updateUserSchema = z.object({
   avatar_url: z.string().url().optional().nullable(),
   timezone: z.string().optional(),
   username: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores').optional(),
+  is_pro: z.boolean().optional(),
 })
 
 export async function userRoutes(app: FastifyInstance) {
@@ -27,6 +28,7 @@ export async function userRoutes(app: FastifyInstance) {
           level: true,
           xp: true,
           timezone: true,
+          is_pro: true,
           created_at: true,
         },
       })
@@ -62,16 +64,22 @@ export async function userRoutes(app: FastifyInstance) {
         `,
       ])
 
+      // Use UTC dates throughout to avoid timezone shifts
+      const MS_DAY = 86_400_000
+      const now = new Date()
+      const todayUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+
+      function toUTCDay(d: Date): number {
+        const p = new Date(d)
+        return Date.UTC(p.getUTCFullYear(), p.getUTCMonth(), p.getUTCDate())
+      }
+
       // Compute daily streak: consecutive days with ≥1 check-in, ending today or yesterday
       function computeDailyStreak(dates: Date[]): number {
         if (dates.length === 0) return 0
-        const MS_DAY = 86_400_000
-        const todayMs = new Date().setHours(0, 0, 0, 0)
-        const sorted = dates
-          .map((r) => new Date(r.day).setHours(0, 0, 0, 0))
-          .sort((a, b) => b - a)
+        const sorted = dates.map(toUTCDay).sort((a, b) => b - a)
         // Streak only counts if the most recent day is today or yesterday
-        if (sorted[0] < todayMs - MS_DAY) return 0
+        if (sorted[0] < todayUTC - MS_DAY) return 0
         let streak = 1
         for (let i = 1; i < sorted.length; i++) {
           if (sorted[i - 1] - sorted[i] === MS_DAY) streak++
@@ -82,6 +90,7 @@ export async function userRoutes(app: FastifyInstance) {
 
       const dailyStreak = computeDailyStreak(checkinDates)
       const longestStreak = Math.max(0, ...activeParticipations.map((p) => p.streak_longest))
+      const hasCheckedInToday = checkinDates.length > 0 && toUTCDay(checkinDates[0].day) === todayUTC
 
       return reply.send({
         stats: {
@@ -89,6 +98,7 @@ export async function userRoutes(app: FastifyInstance) {
           total_checkins: totalCheckins,
           current_streaks: activeParticipations.reduce((s, p) => s + p.streak_current, 0),
           daily_streak: dailyStreak,
+          has_checked_in_today: hasCheckedInToday,
           longest_streak: longestStreak,
           active_challenges: activeParticipations.length,
         },
@@ -173,13 +183,52 @@ export async function userRoutes(app: FastifyInstance) {
 
       const checkedInIds = new Set(todayCheckins.map((c) => c.challenge_id))
 
+      // Compute effective per-challenge streak: reset to 0 if last check-in was > 1 day ago
+      const now = new Date()
+      const todayUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+      const yesterdayUTC = todayUTC - 86_400_000
+
+      const lastCheckinRows = activeChallengeIds.length > 0
+        ? await prisma.$queryRaw<{ challenge_id: string; last_date: Date }[]>`
+            SELECT challenge_id::text, MAX(checked_in_at)::date AS last_date
+            FROM checkins
+            WHERE user_id = ${id}::uuid AND challenge_id = ANY(${activeChallengeIds}::uuid[])
+            GROUP BY challenge_id
+          `
+        : []
+
+      const lastCheckinMap = new Map(lastCheckinRows.map((r) => [
+        r.challenge_id,
+        Date.UTC(r.last_date.getUTCFullYear(), r.last_date.getUTCMonth(), r.last_date.getUTCDate()),
+      ]))
+
       return reply.send({
-        challenges: participations.map((p) => ({
-          ...p.challenge,
-          my_participation: p,
-          has_checked_in_today: checkedInIds.has(p.challenge_id),
-        })),
+        challenges: participations.map((p) => {
+          const lastMs = lastCheckinMap.get(p.challenge_id)
+          const streakBroken = p.challenge.status === 'active' && (lastMs === undefined || lastMs < yesterdayUTC)
+          return {
+            ...p.challenge,
+            my_participation: {
+              ...p,
+              streak_current: streakBroken ? 0 : p.streak_current,
+            },
+            has_checked_in_today: checkedInIds.has(p.challenge_id),
+          }
+        }),
       })
+    },
+  })
+
+  // POST /users/:id/subscribe — activates Pro
+  app.post('/:id/subscribe', {
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      const { id } = request.params as { id: string }
+      if (id !== request.userId) {
+        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Cannot update another user' })
+      }
+      const user = await prisma.user.update({ where: { id }, data: { is_pro: true } })
+      return reply.send({ user })
     },
   })
 

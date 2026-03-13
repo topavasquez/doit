@@ -1,5 +1,18 @@
 import { supabase } from './supabase'
 import { API_URL } from '../constants'
+import * as ImageManipulator from 'expo-image-manipulator'
+
+const NON_JPEG_MIME = /image\/(avif|webp|heic|heif|bmp|tiff)/i
+
+async function toJpeg(uri: string, mimeType: string): Promise<{ uri: string; mimeType: string; base64?: string }> {
+  if (!NON_JPEG_MIME.test(mimeType)) return { uri, mimeType }
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    [],
+    { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+  )
+  return { uri: result.uri, mimeType: 'image/jpeg', base64: result.base64 }
+}
 
 async function getAuthHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession()
@@ -61,6 +74,8 @@ export const usersApi = {
     request<{ user: unknown }>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   getChallenges: (id: string, status?: string) =>
     request<{ challenges: unknown[] }>(`/users/${id}/challenges${status ? `?status=${status}` : ''}`),
+  subscribe: (id: string) =>
+    request<{ user: unknown }>(`/users/${id}/subscribe`, { method: 'POST' }),
 }
 
 // Groups
@@ -93,12 +108,19 @@ export const groupsApi = {
     request<{ message: import('@doit/shared').GroupMessage }>(
       `/groups/${groupId}/messages`, { method: 'POST', body: JSON.stringify({ content }) }
     ),
+  updateCover: (groupId: string, body: { cover_image?: string | null; cover_color?: string | null }) =>
+    request<{ group: unknown }>(`/groups/${groupId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 }
 
 // Challenges
 export async function uploadCheckinPhoto(uri: string, mimeType = 'image/jpeg', base64?: string): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Not authenticated')
+
+  const normalized = await toJpeg(uri, mimeType)
+  uri = normalized.uri
+  mimeType = normalized.mimeType
+  if (normalized.base64) base64 = normalized.base64
 
   const extMatch = uri.split('?')[0].match(/\.([a-zA-Z]{2,5})$/)
   const ext = extMatch ? extMatch[1].toLowerCase() : (mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg')
@@ -138,6 +160,11 @@ export async function uploadAvatarPhoto(uri: string, mimeType = 'image/jpeg', ba
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Not authenticated')
 
+  const normalized = await toJpeg(uri, mimeType)
+  uri = normalized.uri
+  mimeType = normalized.mimeType
+  if (normalized.base64) base64 = normalized.base64
+
   const extMatch = uri.split('?')[0].match(/\.([a-zA-Z]{2,5})$/)
   const ext = extMatch ? extMatch[1].toLowerCase() : (mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg')
   const filename = `avatars/${session.user.id}/${Date.now()}.${ext}`
@@ -165,6 +192,33 @@ export async function uploadAvatarPhoto(uri: string, mimeType = 'image/jpeg', ba
       throw new Error(err.message ?? `Upload failed (${res.status})`)
     }
   }
+
+  const { data } = supabase.storage.from('checkin-photos').getPublicUrl(filename)
+  return data.publicUrl
+}
+
+export async function uploadGroupCoverPhoto(uri: string): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  // Always convert to JPEG with base64 — avoids FormData issues with group-cover uploads
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    [],
+    { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+  )
+  if (!result.base64) throw new Error('Failed to encode image')
+
+  const filename = `group-covers/${session.user.id}/${Date.now()}.jpg`
+  const binaryStr = atob(result.base64)
+  const bytes = new Uint8Array(binaryStr.length)
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i)
+  }
+  const { error } = await supabase.storage
+    .from('checkin-photos')
+    .upload(filename, bytes, { contentType: 'image/jpeg', upsert: true })
+  if (error) throw new Error(error.message)
 
   const { data } = supabase.storage.from('checkin-photos').getPublicUrl(filename)
   return data.publicUrl
@@ -226,6 +280,34 @@ export const friendsApi = {
     request<{ friends: import('@doit/shared').Friend[]; count: number }>('/friends'),
   getCount: (userId: string) =>
     request<{ count: number }>(`/friends/count/${userId}`),
+}
+
+// Family Challenges
+export const familyApi = {
+  list: () =>
+    request<{ challenges: unknown[] }>('/family'),
+  get: (id: string) =>
+    request<{ challenge: unknown; role: string; participants: unknown[]; admin: unknown; pending_checkins: unknown[]; has_checked_in_today: boolean }>(`/family/${id}`),
+  create: (body: { title: string; description?: string; duration_days: 7 | 30 | 90; frequency: 'daily' | 'weekly'; reward_description?: string; require_photo?: boolean }) =>
+    request<{ challenge: unknown }>('/family', { method: 'POST', body: JSON.stringify(body) }),
+  join: (invite_code: string) =>
+    request<{ challenge: unknown }>('/family/join', { method: 'POST', body: JSON.stringify({ invite_code }) }),
+  start: (id: string) =>
+    request<{ challenge: unknown }>(`/family/${id}/start`, { method: 'POST' }),
+  checkin: (id: string, body: { photo_url?: string | null; notes?: string | null }) =>
+    request<{ checkin: unknown; auto_approved: boolean }>(`/family/${id}/checkins`, { method: 'POST', body: JSON.stringify(body) }),
+  getCheckins: (id: string) =>
+    request<{ checkins: unknown[] }>(`/family/${id}/checkins`),
+  reviewCheckin: (id: string, cid: string, action: 'approve' | 'reject') =>
+    request<{ checkin: unknown }>(`/family/${id}/checkins/${cid}`, { method: 'PATCH', body: JSON.stringify({ action }) }),
+  inviteFriend: (id: string, friendId: string) =>
+    request<{ ok: boolean }>(`/family/${id}/invite-friend`, { method: 'POST', body: JSON.stringify({ friend_id: friendId }) }),
+  getInvites: () =>
+    request<{ invites: { id: string; challenge_id: string; challenge_title: string; invite_code: string; inviter: { username: string; display_name: string | null; avatar_url: string | null } | null; created_at: string }[] }>('/family/invites'),
+  acceptInvite: (nid: string) =>
+    request<{ challenge: unknown }>(`/family/invites/${nid}/accept`, { method: 'POST' }),
+  declineInvite: (nid: string) =>
+    request<void>(`/family/invites/${nid}/decline`, { method: 'POST' }),
 }
 
 // Notifications

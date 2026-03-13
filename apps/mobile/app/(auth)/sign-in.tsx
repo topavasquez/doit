@@ -10,7 +10,10 @@ import {
   ScrollView,
 } from "react-native";
 import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams } from "expo-router";
+
+if (Platform.OS !== 'web') WebBrowser.maybeCompleteAuthSession();
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { Colors } from "../../constants/colors";
@@ -180,12 +183,29 @@ export default function SignInScreen() {
     clearError();
     setLoading(true);
     try {
-      const redirectTo = Linking.createURL("/(tabs)");
-      const { error } = await supabase.auth.signInWithOAuth({
+      const redirectTo = Linking.createURL("/auth/callback");
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo },
+        options: { redirectTo, skipBrowserRedirect: true },
       });
-      if (error) throw error;
+      if (error || !data.url) throw error ?? new Error("No auth URL");
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+      if (result.type === "success") {
+        const urlObj = new URL(result.url);
+        const fragment = new URLSearchParams(urlObj.hash.replace("#", ""));
+        const accessToken = fragment.get("access_token");
+        const refreshToken = fragment.get("refresh_token");
+        if (accessToken && refreshToken) {
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (sessionError) throw sessionError;
+        }
+      }
     } catch (err: unknown) {
       setErrorMsg(
         err instanceof Error

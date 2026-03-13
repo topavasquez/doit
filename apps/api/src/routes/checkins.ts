@@ -35,7 +35,7 @@ export async function checkinRoutes(app: FastifyInstance) {
       const { challenge_id, ...rest } = parsed.data;
 
       // Verify challenge is active, user is a participant, and fetch streak in parallel
-      const [challenge, participant, userStreakData] = await Promise.all([
+      const [challenge, participant, userStreakData, lastChallengeCheckin] = await Promise.all([
         prisma.challenge.findUnique({
           where: { id: challenge_id },
           select: { status: true, frequency: true, group_id: true },
@@ -48,6 +48,11 @@ export async function checkinRoutes(app: FastifyInstance) {
         prisma.user.findUnique({
           where: { id: request.userId },
           select: { streak_current: true, streak_longest: true, last_checkin_date: true },
+        }),
+        prisma.checkin.findFirst({
+          where: { challenge_id, user_id: request.userId },
+          orderBy: { checked_in_at: 'desc' },
+          select: { checked_in_at: true },
         }),
       ]);
 
@@ -123,6 +128,15 @@ export async function checkinRoutes(app: FastifyInstance) {
         newGlobalLongest = Math.max(newGlobalStreak, newGlobalLongest);
       }
 
+      // Per-challenge streak
+      const lastChallengeDate = lastChallengeCheckin?.checked_in_at
+        ? new Date(lastChallengeCheckin.checked_in_at)
+        : null
+      if (lastChallengeDate) lastChallengeDate.setUTCHours(0, 0, 0, 0)
+      const wasYesterdayForChallenge = lastChallengeDate && lastChallengeDate.getTime() === yesterdayUTC.getTime()
+      const newParticipantStreak = wasYesterdayForChallenge ? participant.streak_current + 1 : 1
+      const newParticipantLongest = Math.max(newParticipantStreak, participant.streak_longest)
+
       // Per-challenge stats (total_checkins used for leaderboard score)
       const newTotal = participant.total_checkins + 1;
 
@@ -151,7 +165,11 @@ export async function checkinRoutes(app: FastifyInstance) {
           where: {
             challenge_id_user_id: { challenge_id, user_id: request.userId },
           },
-          data: { total_checkins: newTotal },
+          data: {
+            total_checkins: newTotal,
+            streak_current: newParticipantStreak,
+            streak_longest: newParticipantLongest,
+          },
         }),
         prisma.user.update({
           where: { id: request.userId },
@@ -172,27 +190,29 @@ export async function checkinRoutes(app: FastifyInstance) {
       // Update leaderboard in Redis (best-effort)
       try { await leaderboard.addCheckin(challenge_id, request.userId); } catch { /* Redis unavailable */ }
 
-      // Notify group members
-      const groupMembers = await prisma.groupMember.findMany({
-        where: {
-          group_id: challenge.group_id,
-          user_id: { not: request.userId },
-        },
-        select: { user_id: true },
-      });
-
-      if (groupMembers.length > 0) {
-        await prisma.notification.createMany({
-          data: groupMembers.map((m) => ({
-            user_id: m.user_id,
-            type: "friend_checkin",
-            payload: {
-              challenge_id,
-              user_id: request.userId,
-              username: (checkin.user as { username: string }).username,
-            },
-          })),
+      // Notify group members (personal challenges have no group)
+      if (challenge.group_id) {
+        const groupMembers = await prisma.groupMember.findMany({
+          where: {
+            group_id: challenge.group_id,
+            user_id: { not: request.userId },
+          },
+          select: { user_id: true },
         });
+
+        if (groupMembers.length > 0) {
+          await prisma.notification.createMany({
+            data: groupMembers.map((m) => ({
+              user_id: m.user_id,
+              type: "friend_checkin",
+              payload: {
+                challenge_id,
+                user_id: request.userId,
+                username: (checkin.user as { username: string }).username,
+              },
+            })),
+          });
+        }
       }
 
       // Check streak milestones (global streak)

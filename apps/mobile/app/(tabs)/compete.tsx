@@ -1,420 +1,580 @@
-import { useState, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Alert, Image,
 } from 'react-native'
+import { useRouter, useFocusEffect } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
-import { useQuery } from '@tanstack/react-query'
-import { usersApi, leaderboardApi } from '../../lib/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { usersApi, familyApi } from '../../lib/api'
 import { useAuth } from '../../hooks/useAuth'
 import { Colors } from '../../constants/colors'
-import { HABIT_CATEGORY_CONFIG, formatDaysLeft } from '../../constants'
-import type { Challenge } from '@doit/shared'
+import { ChallengeRetoCard } from '../../components/ChallengeRetoCard'
+import type { Challenge, ChallengeParticipant } from '@doit/shared'
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type LbEntry = {
-  rank: number
-  user_id: string
-  username: string
-  display_name?: string | null
-  streak_current: number
-  total_checkins: number
-  completion_pct: number
-  is_me: boolean
+type PersonalChallenge = Challenge & {
+  my_participation?: Pick<
+    ChallengeParticipant,
+    'streak_current' | 'streak_longest' | 'total_checkins'
+  > | null
+  has_checked_in_today?: boolean
 }
 
-// ─── Medal config ─────────────────────────────────────────────────────────────
+// ─── Family types & card ──────────────────────────────────────────────────────
 
-const MEDALS = [
-  { color: '#FF7A00', label: '1°', icon: 'trophy' as const, size: 60, elevated: true },
-  { color: '#9A9A9A', label: '2°', icon: 'medal' as const, size: 52, elevated: false },
-  { color: '#C8A060', label: '3°', icon: 'medal' as const, size: 52, elevated: false },
-]
-
-// ─── Podium card ─────────────────────────────────────────────────────────────
-
-function PodiumCard({ entry, position }: { entry: LbEntry; position: 0 | 1 | 2 }) {
-  const medal = MEDALS[position]
-  return (
-    <View style={[podStyles.wrap, medal.elevated && podStyles.wrapFirst]}>
-      {/* Medal badge */}
-      <View style={[podStyles.medalBadge, { backgroundColor: medal.color + '22', borderColor: medal.color + '55' }]}>
-        <MaterialCommunityIcons name={medal.icon} size={14} color={medal.color} />
-        <Text style={[podStyles.medalLabel, { color: medal.color }]}>{medal.label}</Text>
-      </View>
-
-      {/* Avatar */}
-      <View style={[
-        podStyles.avatar,
-        { backgroundColor: medal.color + '22', borderColor: medal.color },
-        medal.elevated && podStyles.avatarFirst,
-      ]}>
-        <Text style={[podStyles.avatarText, { color: medal.color, fontSize: medal.elevated ? 26 : 22 }]}>
-          {entry.username[0]?.toUpperCase() ?? '?'}
-        </Text>
-      </View>
-
-      {/* Name */}
-      <Text style={podStyles.name} numberOfLines={1}>
-        {entry.display_name ?? entry.username}
-        {entry.is_me ? <Text style={podStyles.youTag}> (tú)</Text> : null}
-      </Text>
-
-      {/* Points */}
-      <View style={[podStyles.ptsBadge, { backgroundColor: medal.color + '18' }]}>
-        <Text style={[podStyles.ptsText, { color: medal.color }]}>{entry.total_checkins}</Text>
-        <Text style={[podStyles.ptsLabel, { color: medal.color + 'aa' }]}>pts</Text>
-      </View>
-    </View>
-  )
+type FamilyChallenge = {
+  id: string; title: string; description: string | null
+  status: string; frequency: string; duration_days: number
+  reward_description: string | null; invite_code: string
+  role: string; participant_count: number; my_checkins: number
 }
 
-// ─── Leaderboard row (rank 4+) ───────────────────────────────────────────────
+function FamilyCard({ challenge, onPress }: { challenge: FamilyChallenge; onPress: () => void }) {
+  const isAdmin = challenge.role === 'admin'
+  const total = challenge.frequency === 'daily' ? challenge.duration_days : Math.ceil(challenge.duration_days / 7)
+  const pct = total > 0 ? Math.min(1, challenge.my_checkins / total) : 0
 
-function LeaderboardRow({ entry }: { entry: LbEntry }) {
   return (
-    <View style={[rowStyles.row, entry.is_me && rowStyles.rowMe]}>
-      <Text style={[rowStyles.rank, entry.is_me && rowStyles.rankMe]}>#{entry.rank}</Text>
-
-      <View style={[rowStyles.avatar, entry.is_me && rowStyles.avatarMe]}>
-        <Text style={[rowStyles.avatarText, entry.is_me && rowStyles.avatarTextMe]}>
-          {entry.username[0]?.toUpperCase() ?? '?'}
-        </Text>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.88}>
+      <View style={[styles.cardCover, { backgroundColor: Colors.primary + '15' }]}>
+        <View style={[styles.coverCircle, { backgroundColor: Colors.primary + '18' }]} />
+        <MaterialCommunityIcons name="account-child" size={48} color={Colors.primary} style={{ opacity: 0.85 }} />
       </View>
-
-      <View style={rowStyles.info}>
-        <Text style={[rowStyles.name, entry.is_me && rowStyles.nameMe]} numberOfLines={1}>
-          {entry.display_name ?? entry.username}
-          {entry.is_me ? <Text style={rowStyles.youTag}> (tú)</Text> : null}
-        </Text>
-        <View style={rowStyles.progressTrack}>
-          <View
-            style={[
-              rowStyles.progressFill,
-              {
-                width: `${Math.min(100, entry.completion_pct)}%` as `${number}%`,
-                backgroundColor: entry.is_me ? Colors.primary : Colors.textMuted + '60',
-              },
-            ]}
-          />
+      <View style={styles.cardContent}>
+        <View style={styles.familyMeta}>
+          <View style={[styles.rolePill, { backgroundColor: isAdmin ? Colors.primary + '20' : Colors.surfaceElevated }]}>
+            <MaterialCommunityIcons
+              name={isAdmin ? 'shield-account-outline' : 'account-outline'}
+              size={12}
+              color={isAdmin ? Colors.primary : Colors.textMuted}
+            />
+            <Text style={[styles.roleText, { color: isAdmin ? Colors.primary : Colors.textMuted }]}>
+              {isAdmin ? 'Admin' : 'Participante'}
+            </Text>
+          </View>
+          <View style={[styles.statusDotWrap, { backgroundColor: challenge.status === 'active' ? Colors.primary + '20' : Colors.surfaceElevated }]}>
+            <View style={[styles.statusDot, { backgroundColor: challenge.status === 'active' ? Colors.primary : Colors.textMuted }]} />
+            <Text style={[styles.statusDotText, { color: challenge.status === 'active' ? Colors.primary : Colors.textMuted }]}>
+              {challenge.status === 'active' ? 'Activo' : challenge.status === 'pending' ? 'Pendiente' : 'Completado'}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.familyTitle} numberOfLines={2}>{challenge.title}</Text>
+        <View style={styles.progressRow}>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.round(pct * 100)}%` }]} />
+          </View>
+          <Text style={styles.progressLabel}>{challenge.my_checkins}/{total}</Text>
+        </View>
+        {challenge.reward_description ? (
+          <View style={styles.rewardRow}>
+            <MaterialCommunityIcons name="gift-outline" size={14} color={Colors.primary} />
+            <Text style={styles.rewardText} numberOfLines={1}>{challenge.reward_description}</Text>
+          </View>
+        ) : null}
+        <View style={styles.cardFooter}>
+          <View style={styles.participantsBadge}>
+            <MaterialCommunityIcons name="account-multiple-outline" size={13} color={Colors.textMuted} />
+            <Text style={styles.participantsText}>{challenge.participant_count} participante{challenge.participant_count !== 1 ? 's' : ''}</Text>
+          </View>
+          <View style={styles.codeChip}>
+            <Text style={styles.codeChipText}>{challenge.invite_code}</Text>
+          </View>
         </View>
       </View>
-
-      <Text style={[rowStyles.pts, entry.is_me && { color: Colors.primary }]}>
-        {entry.total_checkins} pts
-      </Text>
-    </View>
+    </TouchableOpacity>
   )
 }
 
-// ─── Empty state ─────────────────────────────────────────────────────────────
+// ─── Empty state ──────────────────────────────────────────────────────────────
 
-function EmptyState() {
+function EmptyTab({
+  icon, title, subtitle, onPress,
+}: {
+  icon: string; title: string; subtitle: string; onPress?: () => void
+}) {
   return (
-    <View style={emptyStyles.wrap}>
-      <View style={emptyStyles.iconBox}>
-        <MaterialCommunityIcons name="trophy-outline" size={36} color={Colors.primary} />
+    <View style={styles.emptyWrap}>
+      <View style={styles.emptyIconBox}>
+        <MaterialCommunityIcons name={icon as any} size={36} color={Colors.primary} />
       </View>
-      <Text style={emptyStyles.title}>Sin retos activos</Text>
-      <Text style={emptyStyles.subtitle}>Únete o crea un reto desde un grupo para competir</Text>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptySubtitle}>{subtitle}</Text>
+      {onPress && (
+        <TouchableOpacity style={styles.emptyBtn} onPress={onPress} activeOpacity={0.85}>
+          <MaterialCommunityIcons name="plus" size={16} color="#000" />
+          <Text style={styles.emptyBtnText}>Crear reto</Text>
+        </TouchableOpacity>
+      )}
     </View>
   )
 }
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
+// ─── Main screen ──────────────────────────────────────────────────────────────
 
-export default function CompeteScreen() {
+type Tab = 'personal' | 'familia'
+
+export default function RetosScreen() {
   const { user } = useAuth()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  const { data: challengesData, isLoading: challengesLoading } = useQuery({
-    queryKey: ['my-challenges', user?.id],
-    queryFn: () => usersApi.getChallenges(user!.id),
-    enabled: !!user?.id,
-  })
-
-  const challenges = (challengesData?.challenges ?? []) as Challenge[]
-  const activeChallenges = challenges.filter((c) => c.status === 'active')
-
-  // Auto-select first active challenge (dep on first challenge id so it re-runs if the list changes)
-  useEffect(() => {
-    if (activeChallenges.length > 0 && !selectedId) {
-      setSelectedId(activeChallenges[0].id)
-    }
-  }, [activeChallenges[0]?.id])
-
-  const selected = activeChallenges.find((c) => c.id === selectedId) ?? activeChallenges[0]
-  const cat = selected?.habit_category as keyof typeof HABIT_CATEGORY_CONFIG | undefined
-  const catCfg = cat ? HABIT_CATEGORY_CONFIG[cat] : HABIT_CATEGORY_CONFIG.custom
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const [tab, setTab] = useState<Tab>('personal')
 
   const {
-    data: lbData,
-    isLoading: lbLoading,
+    data: challengesData,
+    isLoading,
     refetch,
     isRefetching,
   } = useQuery({
-    queryKey: ['leaderboard', selected?.id],
-    queryFn: () => leaderboardApi.get(selected!.id),
-    enabled: !!selected?.id,
+    queryKey: ['my-challenges', user?.id],
+    queryFn: () => usersApi.getChallenges(user!.id),
+    enabled: !!user?.id,
     staleTime: 30_000,
-    refetchInterval: 120_000,
   })
 
-  const leaderboard = (lbData?.leaderboard ?? []) as LbEntry[]
-  const isGhost = !!lbData?.ghost_mode
+  const {
+    data: familyData,
+    isLoading: familyLoading,
+    refetch: familyRefetch,
+    isRefetching: familyRefetching,
+  } = useQuery({
+    queryKey: ['family-challenges'],
+    queryFn: () => familyApi.list(),
+    enabled: !!user?.id,
+    staleTime: 30_000,
+  })
 
-  // Podium order: 2nd | 1st | 3rd
-  const top3 = leaderboard.slice(0, 3)
-  const podiumOrder: (LbEntry | undefined)[] = [top3[1], top3[0], top3[2]]
-  const podiumPositions: (0 | 1 | 2)[] = [1, 0, 2]
-  const restEntries = leaderboard.slice(3)
+  const {
+    data: familyInvitesData,
+    refetch: refetchFamilyInvites,
+  } = useQuery({
+    queryKey: ['family-invites'],
+    queryFn: () => familyApi.getInvites(),
+    enabled: !!user?.id && tab === 'familia',
+    staleTime: 15_000,
+  })
 
-  const showPodium = leaderboard.length >= 2 && !isGhost
+  const acceptFamilyInviteMutation = useMutation({
+    mutationFn: (nid: string) => familyApi.acceptInvite(nid),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['family-challenges'] })
+      queryClient.invalidateQueries({ queryKey: ['family-invites'] })
+      router.push(`/family/${res.challenge.id}`)
+    },
+    onError: (err: any) => Alert.alert('Error', err.message),
+  })
 
-  if (challengesLoading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator color={Colors.primary} size="large" />
-      </View>
-    )
+  const declineFamilyInviteMutation = useMutation({
+    mutationFn: (nid: string) => familyApi.declineInvite(nid),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['family-invites'] }),
+  })
+
+  useFocusEffect(
+    useCallback(() => { refetch(); familyRefetch(); refetchFamilyInvites() }, []),
+  )
+
+  const allChallenges = (challengesData?.challenges ?? []) as PersonalChallenge[]
+  // Personal tab: only challenges with no group (group_id === null)
+  const personalChallenges = allChallenges.filter((c) => !(c as any).group_id)
+  const activeChallenges = personalChallenges.filter((c) => c.status === 'active')
+  const familyChallenges = (familyData?.challenges ?? []) as FamilyChallenge[]
+
+  function handleFab() {
+    if (tab === 'familia') {
+      router.push('/family/create')
+      return
+    }
+    if (!user?.is_pro && activeChallenges.length >= 1) {
+      router.push('/premium')
+      return
+    }
+    router.push('/challenge/create')
   }
 
-  if (activeChallenges.length === 0) {
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  if (!user?.is_pro) {
     return (
       <View style={styles.container}>
-        <EmptyState />
+        <View style={styles.paywallWrap}>
+          {/* Crown icon */}
+          <View style={styles.paywallCrownCircle}>
+            <MaterialCommunityIcons name="crown" size={40} color={Colors.primary} />
+          </View>
+
+          {/* Title */}
+          <Text style={styles.paywallTitle}>Retos</Text>
+
+          {/* PRO badge */}
+          <View style={styles.paywallProBadge}>
+            <MaterialCommunityIcons name="crown" size={12} color={Colors.primary} />
+            <Text style={styles.paywallProBadgeText}>PRO</Text>
+          </View>
+
+          {/* Heading */}
+          <Text style={styles.paywallHeading}>
+            Lleva tus hábitos al siguiente nivel
+          </Text>
+
+          {/* Subtitle */}
+          <Text style={styles.paywallSubtitle}>
+            Los retos personales y familiares son exclusivos para suscriptores. Elige el plan que mejor se adapte a ti.
+          </Text>
+
+          {/* Benefits */}
+          <View style={styles.paywallBenefits}>
+            {[
+              'Retos personales ilimitados',
+              'Retos familiares para toda la familia',
+              'Compite sin límites con tus amigos',
+            ].map((b) => (
+              <View key={b} style={styles.paywallBenefitRow}>
+                <MaterialCommunityIcons name="check-circle" size={20} color={Colors.primary} />
+                <Text style={styles.paywallBenefitText}>{b}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* CTA */}
+          <TouchableOpacity
+            style={styles.paywallCta}
+            activeOpacity={0.85}
+            onPress={() => router.push('/premium')}
+          >
+            <Text style={styles.paywallCtaText}>Ver planes</Text>
+          </TouchableOpacity>
+
+          {/* Dismiss */}
+          <TouchableOpacity style={styles.paywallDismiss} onPress={() => router.back()}>
+            <Text style={styles.paywallDismissText}>Ahora no</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     )
   }
 
   return (
     <View style={styles.container}>
-      {/* ── Challenge selector ────────────────────────────────── */}
-      <View style={styles.selectorWrap}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.selectorScroll}
+
+      {/* ── Tab pills ────────────────────────────────────────────── */}
+      <View style={styles.tabBar}>
+        <TouchableOpacity
+          style={[styles.tabPill, tab === 'personal' && styles.tabPillActive]}
+          onPress={() => setTab('personal')}
+          activeOpacity={0.8}
         >
-          {activeChallenges.map((c) => {
-            const cfg = HABIT_CATEGORY_CONFIG[c.habit_category as keyof typeof HABIT_CATEGORY_CONFIG] ?? HABIT_CATEGORY_CONFIG.custom
-            const active = selected?.id === c.id
-            return (
-              <TouchableOpacity
-                key={c.id}
-                style={[
-                  styles.chip,
-                  active && { backgroundColor: cfg.color + '22', borderColor: cfg.color },
-                ]}
-                onPress={() => setSelectedId(c.id)}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.chipDot, { backgroundColor: active ? cfg.color : Colors.textMuted }]} />
-                <Text style={[styles.chipText, active && { color: cfg.color }]} numberOfLines={1}>
-                  {c.title}
-                </Text>
-              </TouchableOpacity>
-            )
-          })}
-        </ScrollView>
+          <MaterialCommunityIcons
+            name="account-outline"
+            size={15}
+            color={tab === 'personal' ? '#000' : Colors.textSecondary}
+          />
+          <Text style={[styles.tabPillText, tab === 'personal' && styles.tabPillTextActive]}>
+            Personal
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabPill, tab === 'familia' && styles.tabPillActive]}
+          onPress={() => setTab('familia')}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons
+            name="account-group-outline"
+            size={15}
+            color={tab === 'familia' ? '#000' : Colors.textSecondary}
+          />
+          <Text style={[styles.tabPillText, tab === 'familia' && styles.tabPillTextActive]}>
+            Familia
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
-          />
-        }
-      >
-        {/* ── Challenge header ──────────────────────────────────── */}
-        {selected && (
-          <View style={[styles.challengeHeader, { borderLeftColor: catCfg.color }]}>
-            <View style={[styles.challengeIconWrap, { backgroundColor: catCfg.color + '20' }]}>
-              <MaterialCommunityIcons name="flag-checkered" size={20} color={catCfg.color} />
-            </View>
-            <View style={styles.challengeHeaderInfo}>
-              <Text style={styles.challengeTitle}>{selected.title}</Text>
-              <View style={styles.challengeMeta}>
-                <View style={[styles.categoryDot, { backgroundColor: catCfg.color }]} />
-                <Text style={[styles.categoryLabel, { color: catCfg.color }]}>{catCfg.label}</Text>
-                {selected.end_date && (
-                  <>
-                    <Text style={styles.metaSep}>·</Text>
-                    <Text style={styles.daysLeft}>{formatDaysLeft(selected.end_date)}</Text>
-                  </>
-                )}
+      {/* ── Content ──────────────────────────────────────────────── */}
+      {(isLoading && tab === 'personal') || (familyLoading && tab === 'familia') ? (
+        <View style={styles.centered}>
+          <ActivityIndicator color={Colors.primary} size="large" />
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={tab === 'personal' ? isRefetching : familyRefetching}
+              onRefresh={tab === 'personal' ? refetch : familyRefetch}
+              tintColor={Colors.primary}
+            />
+          }
+        >
+          {/* Personal tab */}
+          {tab === 'personal' && (
+            activeChallenges.length === 0 ? (
+              <EmptyTab
+                icon="flag-outline"
+                title="Sin retos personales"
+                subtitle="Crea tu primer reto personal y compite contra ti mismo"
+                onPress={handleFab}
+              />
+            ) : (
+              <>
+                <Text style={styles.sectionHint}>
+                  {activeChallenges.length} {activeChallenges.length === 1 ? 'reto activo' : 'retos activos'}
+                </Text>
+                {activeChallenges.map((c) => (
+                  <ChallengeRetoCard
+                    key={c.id}
+                    variant="personal"
+                    challenge={c}
+                    streakCurrent={c.my_participation?.streak_current ?? 0}
+                    streakLongest={c.my_participation?.streak_longest ?? 0}
+                    totalCheckins={c.my_participation?.total_checkins ?? 0}
+                    checkedInToday={c.has_checked_in_today ?? false}
+                    onPress={() => router.push(`/challenge/${c.id}`)}
+                  />
+                ))}
+              </>
+            )
+          )}
+
+          {/* Familia tab */}
+          {tab === 'familia' && (
+            <>
+            {/* Pending family invites */}
+            {(familyInvitesData?.invites ?? []).length > 0 && (
+              <View style={styles.invitesSection}>
+                <Text style={styles.invitesSectionTitle}>INVITACIONES PENDIENTES</Text>
+                {familyInvitesData!.invites.map((inv) => (
+                  <View key={inv.id} style={styles.inviteCard}>
+                    <View style={styles.inviteAvatarWrap}>
+                      {inv.inviter?.avatar_url
+                        ? <Image source={{ uri: inv.inviter.avatar_url }} style={styles.inviteAvatar} />
+                        : <View style={styles.inviteAvatar}>
+                            <Text style={styles.inviteAvatarText}>
+                              {(inv.inviter?.display_name ?? inv.inviter?.username ?? '?')[0].toUpperCase()}
+                            </Text>
+                          </View>
+                      }
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.inviteTitle} numberOfLines={1}>{inv.challenge_title}</Text>
+                      <Text style={styles.inviteFrom}>
+                        {inv.inviter?.display_name ?? inv.inviter?.username ?? 'Alguien'} te invitó
+                      </Text>
+                    </View>
+                    <View style={styles.inviteActions}>
+                      <TouchableOpacity
+                        style={styles.declineBtn}
+                        onPress={() => declineFamilyInviteMutation.mutate(inv.id)}
+                        disabled={declineFamilyInviteMutation.isPending}
+                      >
+                        <MaterialCommunityIcons name="close" size={16} color={Colors.textMuted} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.acceptBtn}
+                        onPress={() => acceptFamilyInviteMutation.mutate(inv.id)}
+                        disabled={acceptFamilyInviteMutation.isPending}
+                      >
+                        <Text style={styles.acceptBtnText}>Aceptar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
               </View>
-            </View>
-          </View>
-        )}
+            )}
+            {familyChallenges.length === 0 ? (
+              <>
+                <EmptyTab
+                  icon="account-child-outline"
+                  title="Sin retos familiares"
+                  subtitle="Crea un reto para tus hijos o únete con un código"
+                  onPress={() => router.push('/family/create')}
+                />
+                <TouchableOpacity
+                  style={styles.joinCodeBtn}
+                  onPress={() => router.push('/family/join')}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="qrcode-scan" size={16} color={Colors.textSecondary} />
+                  <Text style={styles.joinCodeText}>Unirse con código FAM-XXXX</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.sectionHint}>
+                  {familyChallenges.length} {familyChallenges.length === 1 ? 'reto familiar' : 'retos familiares'}
+                </Text>
+                {familyChallenges.map((c) => (
+                  <FamilyCard key={c.id} challenge={c} onPress={() => router.push(`/family/${c.id}`)} />
+                ))}
+                {/* Join by code */}
+                <TouchableOpacity
+                  style={styles.joinCodeBtn}
+                  onPress={() => router.push('/family/join')}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="qrcode-scan" size={16} color={Colors.textSecondary} />
+                  <Text style={styles.joinCodeText}>Unirse con código FAM-XXXX</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            </>
+          )}
+        </ScrollView>
+      )}
 
-        {/* ── Ghost mode banner ─────────────────────────────────── */}
-        {isGhost && (
-          <View style={styles.ghostBanner}>
-            <MaterialCommunityIcons name="ghost-outline" size={16} color={Colors.textSecondary} />
-            <Text style={styles.ghostText}>Modo Fantasma — clasificación oculta hasta que termine el reto</Text>
-          </View>
-        )}
+      {/* ── FAB ──────────────────────────────────────────────────── */}
+      <TouchableOpacity style={styles.fab} onPress={handleFab} activeOpacity={0.85}>
+        <MaterialCommunityIcons name="plus" size={28} color="#000" />
+      </TouchableOpacity>
 
-        {/* ── Loading leaderboard ───────────────────────────────── */}
-        {lbLoading && (
-          <View style={styles.centered}>
-            <ActivityIndicator color={Colors.primary} />
-          </View>
-        )}
-
-        {/* ── Podium top 3 ─────────────────────────────────────── */}
-        {!lbLoading && showPodium && (
-          <>
-            <Text style={styles.sectionLabel}>TOP 3</Text>
-            <View style={styles.podium}>
-              {podiumOrder.map((entry, i) =>
-                entry ? (
-                  <PodiumCard key={entry.user_id} entry={entry} position={podiumPositions[i]} />
-                ) : (
-                  <View key={i} style={podStyles.wrap} />
-                )
-              )}
-            </View>
-          </>
-        )}
-
-        {/* ── Rest of the leaderboard ───────────────────────────── */}
-        {!lbLoading && restEntries.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>CLASIFICACIÓN</Text>
-            {restEntries.map((entry) => (
-              <LeaderboardRow key={entry.user_id} entry={entry} />
-            ))}
-          </>
-        )}
-
-        {/* ── Empty leaderboard ─────────────────────────────────── */}
-        {!lbLoading && leaderboard.length === 0 && (
-          <View style={styles.emptyInlineWrap}>
-            <MaterialCommunityIcons name="timer-sand" size={28} color={Colors.textMuted} />
-            <Text style={styles.emptyInline}>Sin clasificación aún</Text>
-            <Text style={styles.emptyInlineSub}>Haz check-in para aparecer aquí</Text>
-          </View>
-        )}
-      </ScrollView>
     </View>
   )
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
-const podStyles = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 4,
-  },
-  wrapFirst: {
-    transform: [{ translateY: -16 }],
-  },
-  medalBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-  },
-  medalLabel: { fontSize: 11, fontWeight: '800' },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2.5,
-  },
-  avatarFirst: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-  },
-  avatarText: { fontWeight: '900' },
-  name: {
-    color: Colors.text,
-    fontWeight: '700',
-    fontSize: 12,
-    textAlign: 'center',
-    maxWidth: 90,
-  },
-  youTag: { color: Colors.textMuted, fontWeight: '400', fontSize: 11 },
-  ptsBadge: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 2,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  ptsText: { fontSize: 16, fontWeight: '900' },
-  ptsLabel: { fontSize: 11, fontWeight: '600' },
-})
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-const rowStyles = StyleSheet.create({
-  row: {
+  tabBar: {
     flexDirection: 'row',
-    alignItems: 'center',
+    margin: 16,
     backgroundColor: Colors.surface,
     borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    marginBottom: 8,
+    padding: 4,
     borderWidth: 1,
     borderColor: Colors.border,
-    gap: 12,
   },
-  rowMe: {
-    borderColor: Colors.primary + '60',
-    backgroundColor: Colors.primary + '0d',
-  },
-  rank: { color: Colors.textMuted, fontSize: 15, fontWeight: '700', minWidth: 26 },
-  rankMe: { color: Colors.primary },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.surfaceElevated,
+  tabPill: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  tabPillActive: { backgroundColor: Colors.primary },
+  tabPillText: { color: Colors.textSecondary, fontWeight: '700', fontSize: 14 },
+  tabPillTextActive: { color: '#000' },
+
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 100, paddingTop: 4 },
+
+  sectionHint: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 14,
+    letterSpacing: 0.3,
+  },
+
+  // Family card
+  card: {
+    backgroundColor: Colors.surface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  cardCover: { height: 110, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  coverCircle: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    top: -40,
+    right: -30,
+  },
+  cardContent: { padding: 16, gap: 10 },
+  familyMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rolePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4,
+  },
+  roleText: { fontSize: 11, fontWeight: '700' },
+  statusDotWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4,
+  },
+  statusDot: { width: 5, height: 5, borderRadius: 3 },
+  statusDotText: { fontSize: 11, fontWeight: '700' },
+  familyTitle: { color: Colors.text, fontSize: 17, fontWeight: '800', lineHeight: 22 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  progressTrack: { flex: 1, height: 5, backgroundColor: Colors.border, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 3 },
+  progressLabel: { color: Colors.textMuted, fontSize: 11, fontWeight: '700', minWidth: 32, textAlign: 'right' },
+  rewardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderWidth: 1,
     borderColor: Colors.border,
   },
-  avatarMe: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  avatarText: { color: Colors.textSecondary, fontWeight: '800', fontSize: 15 },
-  avatarTextMe: { color: '#000' },
-  info: { flex: 1 },
-  name: { color: Colors.text, fontWeight: '700', fontSize: 15, marginBottom: 6 },
-  nameMe: { color: Colors.primary },
-  youTag: { color: Colors.textSecondary, fontWeight: '400', fontSize: 13 },
-  progressTrack: { height: 4, backgroundColor: Colors.border, borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 2 },
-  pts: { color: Colors.text, fontWeight: '800', fontSize: 14 },
-})
-
-const emptyStyles = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingVertical: 80,
+  rewardText: { color: Colors.textSecondary, fontSize: 13, fontWeight: '500', flex: 1 },
+  cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  participantsBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  participantsText: { color: Colors.textMuted, fontSize: 12, fontWeight: '600' },
+  codeChip: {
+    backgroundColor: Colors.primary + '18',
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: Colors.primary + '30',
   },
-  iconBox: {
+  codeChipText: { color: Colors.primary, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+
+  // Invite cards
+  invitesSection: { marginBottom: 20 },
+  invitesSectionTitle: {
+    color: Colors.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1,
+    marginBottom: 10,
+  },
+  inviteCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.primary + '30',
+    padding: 12, marginBottom: 8,
+  },
+  inviteAvatarWrap: {},
+  inviteAvatar: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: Colors.primary + '22',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  inviteAvatarText: { color: Colors.primary, fontWeight: '800', fontSize: 15 },
+  inviteTitle: { color: Colors.text, fontWeight: '700', fontSize: 14 },
+  inviteFrom: { color: Colors.textMuted, fontSize: 12, marginTop: 1 },
+  inviteActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  declineBtn: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1, borderColor: Colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  acceptBtn: {
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 7,
+    backgroundColor: Colors.primary,
+  },
+  acceptBtnText: { color: '#000', fontWeight: '800', fontSize: 13 },
+
+  joinCodeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: Colors.surface, borderRadius: 12,
+    borderWidth: 1, borderColor: Colors.border,
+    paddingVertical: 13, marginTop: 4,
+  },
+  joinCodeText: { color: Colors.textSecondary, fontWeight: '700', fontSize: 13 },
+
+  // Empty state
+  emptyWrap: { alignItems: 'center', paddingVertical: 64, gap: 12, paddingHorizontal: 24 },
+  emptyIconBox: {
     width: 80,
     height: 80,
     borderRadius: 20,
@@ -425,113 +585,127 @@ const emptyStyles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 4,
   },
-  title: { color: Colors.text, fontSize: 20, fontWeight: '800' },
-  subtitle: { color: Colors.textSecondary, fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
-})
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 48 },
-
-  // Challenge selector
-  selectorWrap: {
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    backgroundColor: Colors.surface,
-  },
-  selectorScroll: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
-  },
-  chip: {
+  emptyTitle: { color: Colors.text, fontSize: 20, fontWeight: '800' },
+  emptySubtitle: { color: Colors.textSecondary, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  emptyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    gap: 6,
+    backgroundColor: Colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 13,
+    marginTop: 8,
+  },
+  emptyBtnText: { color: '#000', fontWeight: '800', fontSize: 14 },
+
+  // Paywall
+  paywallWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 16,
+  },
+  paywallCrownCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.primary + '18',
     borderWidth: 1.5,
-    borderColor: Colors.border,
-    maxWidth: 200,
-  },
-  chipDot: { width: 7, height: 7, borderRadius: 3.5 },
-  chipText: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600' },
-
-  // Scroll
-  scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },
-
-  // Challenge header card
-  challengeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderLeftWidth: 4,
-    gap: 12,
-  },
-  challengeIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    borderColor: Colors.primary + '40',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 4,
   },
-  challengeHeaderInfo: { flex: 1 },
-  challengeTitle: { color: Colors.text, fontWeight: '800', fontSize: 16 },
-  challengeMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  categoryDot: { width: 7, height: 7, borderRadius: 3.5 },
-  categoryLabel: { fontSize: 12, fontWeight: '600' },
-  metaSep: { color: Colors.textMuted, fontSize: 12 },
-  daysLeft: { color: Colors.textMuted, fontSize: 12 },
-
-  // Ghost banner
-  ghostBanner: {
+  paywallTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: Colors.text,
+  },
+  paywallProBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  ghostText: { color: Colors.textSecondary, fontSize: 13, flex: 1 },
-
-  // Section labels
-  sectionLabel: {
-    color: Colors.textMuted,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 14,
-  },
-
-  // Podium
-  podium: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 36,
-    paddingTop: 16,
-    backgroundColor: Colors.surface,
-    borderRadius: 18,
+    gap: 5,
+    backgroundColor: Colors.primary + '18',
+    borderRadius: 20,
     paddingHorizontal: 12,
-    paddingBottom: 20,
+    paddingVertical: 5,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: Colors.primary + '40',
+  },
+  paywallProBadgeText: {
+    color: Colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  paywallHeading: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: Colors.text,
+    textAlign: 'center',
+    lineHeight: 28,
+  },
+  paywallSubtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  paywallBenefits: { gap: 12, alignSelf: 'stretch', marginTop: 4 },
+  paywallBenefitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  paywallBenefitText: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+  },
+  paywallCta: {
+    backgroundColor: Colors.primary,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    marginTop: 8,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  paywallCtaText: {
+    color: '#000',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  paywallDismiss: { paddingVertical: 8 },
+  paywallDismissText: {
+    color: Colors.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
   },
 
-  // Empty inline
-  emptyInlineWrap: { alignItems: 'center', paddingVertical: 48, gap: 8 },
-  emptyInline: { color: Colors.text, fontWeight: '700', fontSize: 16 },
-  emptyInlineSub: { color: Colors.textMuted, fontSize: 13 },
+  // FAB — idéntico al de groups.tsx
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+
 })

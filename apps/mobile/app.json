@@ -44,7 +44,8 @@
           "photosPermission": "DoIt needs access to your photos to attach proof to your check-ins.",
           "cameraPermission": "DoIt needs camera access to take check-in proof photos."
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

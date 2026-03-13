@@ -34,6 +34,7 @@ C:\dev\doit\
 │   │           ├── auth.ts                # POST /auth/sync-user, /auth/me, /auth/check-username
 │   │           ├── challenges.ts          # CRUD + /start /cancel /join
 │   │           ├── checkins.ts            # POST /checkins, GET /checkins, POST /checkins/:id/react
+│   │           ├── family.ts              # Family module — raw SQL tables, admin approval flow
 │   │           ├── friends.ts             # Friends system — search, request, accept/reject, list, sent
 │   │           ├── groups.ts              # CRUD + /join/:inviteCode, /invite, /invite-friend, /members, /messages, /invites
 │   │           ├── leaderboard.ts         # GET /leaderboard/:challengeId
@@ -51,8 +52,8 @@ C:\dev\doit\
 │       │   │   ├── onboarding.tsx         # Username + display name + optional avatar after first login
 │       │   │   └── reset-password.tsx     # New password (×2) after clicking reset email link
 │       │   ├── (tabs)/
-│       │   │   ├── _layout.tsx            # Tab bar (Inicio, Grupos, Competir, Perfil)
-│       │   │   ├── index.tsx              # Home — daily progress, stats, challenge task list
+│       │   │   ├── _layout.tsx            # Tab bar (Inicio, Grupos, Competir, Perfil); Inicio header overridden by index.tsx via useLayoutEffect
+│       │   │   ├── index.tsx              # Home — daily progress, stats, 3-tab task list (Hoy/Próximos/Completados), streak pill in header
 │       │   │   ├── compete.tsx            # Global leaderboard / compete tab
 │       │   │   ├── groups.tsx             # Groups list — My Groups / Discover tabs
 │       │   │   └── profile.tsx            # User profile — edit modal, stats, friends count, Active/History tabs
@@ -63,10 +64,16 @@ C:\dev\doit\
 │       │   │   └── [id].tsx               # Public user profile — avatar, stats, friends count (read-only)
 │       │   ├── group/
 │       │   │   └── [id].tsx               # Group detail — Retos tab + Chat tab + invite modal
+│       │   ├── premium.tsx                # Premium paywall — free vs premium comparison table, slide_from_bottom animation
+│       │   ├── family/
+│       │   │   ├── [id].tsx               # Family challenge detail — participants, pending checkins, admin approve/reject
+│       │   │   ├── create.tsx             # Create family challenge
+│       │   │   ├── join.tsx               # Join via FAM-XXXX invite code
+│       │   │   └── checkin.tsx            # Family check-in screen
 │       │   └── challenge/
-│       │       ├── [id].tsx               # Challenge detail — header, "Do It" btn, Leaderboard/Activity tabs
+│       │       ├── [id].tsx               # Challenge detail — header, "Do It" btn, Leaderboard/Activity tabs; tappable photos with fullscreen modal + share
 │       │       ├── create.tsx             # Create challenge modal
-│       │       └── photo-checkin.tsx      # Full-screen photo check-in — camera/gallery, notes, upload
+│       │       └── photo-checkin.tsx      # Full-screen photo check-in — camera/gallery (portrait 3:4), notes, upload
 │       ├── components/
 │       │   ├── AvatarPicker.tsx           # Reusable avatar picker — opens gallery, uploads, shows preview
 │       │   ├── ChallengeCard.tsx
@@ -79,7 +86,7 @@ C:\dev\doit\
 │       │       ├── Card.tsx
 │       │       └── Logo.tsx               # "DoIt" text logo in two colors
 │       ├── constants/
-│       │   ├── colors.ts                  # Brand colors — primary #fe7d1b, bg #111111, etc.
+│       │   ├── colors.ts                  # Brand colors — primary #FF7A00, bg #0B0B0B; also exports Colors.gym/diet/etc.
 │       │   └── index.ts                   # HABIT_CATEGORY_CONFIG, formatDaysLeft, formatRelativeTime
 │       ├── hooks/
 │       │   └── useAuth.ts                 # useAuthGuard (session listener + routing) + useAuth (store accessor)
@@ -178,7 +185,8 @@ npm run lint           # eslint
 - `POST /challenges/:id/start`, `POST /challenges/:id/cancel`, `POST /challenges/:id/join`
 - `POST /checkins`, `GET /checkins?challengeId=`, `POST /checkins/:id/react`
 - `GET /leaderboard/:challengeId`
-- `GET /users/:id`, `PATCH /users/:id` (accepts `display_name`, `avatar_url`, `timezone`, `username` with uniqueness check), `GET /users/:id/stats`, `GET /users/:id/challenges`
+- `GET /users/:id`, `PATCH /users/:id` (accepts `display_name`, `avatar_url`, `timezone`, `username` with uniqueness check), `GET /users/:id/stats`, `GET /users/:id/challenges`, `DELETE /users/:id` (GDPR soft delete via `deleted_at`)
+- `DELETE /groups/:id/members/:userId` — removes member + all their `ChallengeParticipant` rows in group + Redis `ZREM` from all leaderboards
 - `GET /notifications`, `PATCH /notifications/:id`
 - `GET /friends/search?q=` — search users by username prefix (returns `friendship_status` + `friendship_id`)
 - `POST /friends/request` — send friend request (creates `friend_request` notification)
@@ -199,8 +207,9 @@ npm run lint           # eslint
 - `friends/` — friends list (3 tabs) + search screens (stack routes from profile)
 - `user/[id]` — public profile screen for any user (avatar, stats, friend count)
 - `group/[id]` — group detail with Retos + Chat tabs
-- `challenge/[id]` — challenge detail with leaderboard + activity
-- `challenge/photo-checkin` — photo check-in screen (modal); params: `challengeId`, `challengeTitle?`, `groupId?`
+- `challenge/[id]` — challenge detail with leaderboard + activity; accepts optional `initialTab` param (`leaderboard | activity`)
+- `challenge/photo-checkin` — photo check-in screen (modal); params: `challengeId`, `challengeTitle?`, `groupId?`; opens camera automatically on mount, gallery is a fallback option; captures in portrait `aspect: [3, 4]`
+- `premium` — paywall screen; `slide_from_bottom` animation; comparison table Gratis vs Premium; "Suscribirse" button (no-op for now); "Ahora no" goes back
 - `challenge/create` — create challenge modal
 
 **Auth state:** `store/auth.ts` (Zustand) holds `session`, `supabaseUser`, `user`, `isLoading`, `isRecovery`. The auth guard in `useAuthGuard()` (called from `_layout.tsx`) redirects between auth and main flows.
@@ -217,7 +226,7 @@ npm run lint           # eslint
 
 **Data fetching:** TanStack Query wraps all API calls. The `request<T>()` helper in `lib/api.ts` attaches the Supabase session JWT and only sends `Content-Type: application/json` when there is a body (critical: no-body POSTs like `/start` must not send the header).
 
-**API client objects in `lib/api.ts`:** `authApi`, `usersApi`, `groupsApi`, `challengesApi`, `checkinsApi`, `leaderboardApi`, `notificationsApi`, `friendsApi` + `uploadCheckinPhoto(uri)` + `uploadAvatarPhoto(uri)`.
+**API client objects in `lib/api.ts`:** `authApi`, `usersApi`, `groupsApi`, `challengesApi`, `checkinsApi`, `leaderboardApi`, `notificationsApi`, `friendsApi`, `familyApi` + `uploadCheckinPhoto(uri)` + `uploadAvatarPhoto(uri)`.
 
 **Supabase Storage:** Public bucket `checkin-photos` — used for both check-in photos and avatars.
 - Check-in photos: `{userId}/{timestamp}.{ext}`
@@ -262,37 +271,65 @@ npm run lint           # eslint
 | `Colors.error` | `#E84444` | Error states only |
 | `Colors.streakFire` | `#FF7A00` | Streak fire icon |
 | `Colors.streakGold` | `#FF9A3D` | Streak gold accents |
+| `Colors.warning` | `#FF7A00` | Warning states (same as primary) |
+| `Colors.secundary` | `#f87858` | Secondary orange variant |
+| `Colors.secundarySoft` | `#f3a05c` | Soft secondary orange variant |
 
-**Habit category colors** (`HABIT_CATEGORY_CONFIG` in `apps/mobile/constants/index.ts`) — all within warm palette:
+**Habit category colors** — exported both as `Colors.gym`, `Colors.diet`, etc. (direct tokens on the `Colors` object) and via `HABIT_CATEGORY_CONFIG[category].color` in `apps/mobile/constants/index.ts`:
 
-| Category | Color |
+| Token | Hex |
 |---|---|
-| gym | `#FF7A00` |
-| reading | `#FF9A3D` |
-| sleep | `#9A9A9A` |
-| diet | `#C8A060` |
-| study | `#E8A820` |
-| custom | `#8A8070` |
+| `Colors.gym` | `#FF7A00` |
+| `Colors.reading` | `#FF9A3D` |
+| `Colors.sleep` | `#9A9A9A` |
+| `Colors.diet` | `#C8A060` |
+| `Colors.study` | `#E8A820` |
+| `Colors.custom` | `#8A8070` |
 
-**Medal / rank colors** (used in leaderboard and compete screens):
+**Medal / rank colors** (hardcoded in `challenge/[id].tsx` `PODIUM_COLORS`):
 
-- 1st place: `#FF7A00`
-- 2nd place: `#9A9A9A`
-- 3rd place: `#C8A060`
+- 1st place: `#f0a500`
+- 2nd place: `#9CA3AF`
+- 3rd place: `#CD7C2F`
 
 **Design patterns:**
 
-- Cards: `borderRadius: 16-18`, `borderWidth: 1`, `borderColor: Colors.border`, `backgroundColor: Colors.surface`
-- Stat cards: tinted background `color + '20'` (no border)
-- Tab pills: two-option switcher — active = `Colors.primary` bg + `#000` text
+- Cards: `borderRadius: 16`, `borderWidth: 1`, `borderColor: Colors.border`, `backgroundColor: Colors.surface` — used consistently for ALL cards (stat cards, group cards, task rows, etc.)
+- Stat cards: same surface card style (NO tinted backgrounds) — icon + label (uppercase, small, muted) + large number + small delta text, all centered vertically
+- Icons inside stat cards: no background circle, `size={24}`, always `color={Colors.primary}` (orange)
+- Stat card order: icon → LABEL (uppercase) → number → delta text
+- Tab pills: multi-option switcher inside a `Colors.surface` container — active = `Colors.primary` bg + `#000` text
 - Primary CTA: `Colors.primary` bg, `#000` text — always
 - Secondary CTA: outlined (`borderColor: Colors.border`), `Colors.textSecondary` text
-- Category indicators: colored dot (7×7 circle) + label, never emoji
+- Category indicators: colored dot (6×6 circle) + label, never emoji
+- Progress card: `Colors.surface` bg + border, label "PROGRESO DIARIO" (uppercase muted), motivational text left (26px bold) + percentage right (40px bold orange), progress bar, subtitle below
+- Group/list row cards: left colored icon square (`borderRadius: 14`, 48×48, `color + '25'` bg) + info column (name bold + subtitle muted) + right chevron `chevron-right`
+- Section headers: title (18px bold white) + link (13px bold orange) in a `space-between` row, `marginBottom: 12`
 - Leaderboard top 3: podium layout (2nd–1st–3rd order) with `PodiumCard` inline in `challenge/[id].tsx`
-- Logo: text-only `Logo` component ("**Do**It" in two colors)
+- Logo: text-only `Logo` component ("**Do**It" in two colors); the Inicio tab header uses a Cloudinary image instead of the `Logo` component
 - Chat bubbles: right-aligned (orange tint, `Colors.primary + '22'`) for current user, left-aligned (surface) for others; chat uses `FlatList` with `[...messages].reverse()` (no `inverted`) + `scrollToEnd` to avoid text rotation bug
 - Loading states: always use `<ActivityIndicator size="large" color={Colors.primary} />`, never text
 - Avatars: show `<Image>` when `avatar_url` is set, otherwise show initials in colored circle
+- Empty states: centered icon (muted) + text + optional CTA button
+
+## Home Screen Layout (reference implementation — `app/(tabs)/index.tsx`)
+
+The Home screen establishes the visual language for the whole app:
+
+1. **Greeting** — `fontSize: 28, fontWeight: "800"` name + `fontSize: 14` muted subtitle
+2. **Progress Card** (full-width `Colors.surface` card):
+   - `"PROGRESO DIARIO"` — `fontSize: 11, fontWeight: "700", letterSpacing: 1.2, color: Colors.textMuted`
+   - Row: motivational text left (`fontSize: 26, fontWeight: "800"`) + `"%"` right (`fontSize: 40, fontWeight: "900", color: Colors.primary`)
+   - Progress bar: `height: 8`, track `Colors.border`, fill `Colors.primary` or `Colors.success` at 100%
+   - Subtitle below in `Colors.textSecondary`
+3. **Stats Row** — 3 equal `flex: 1` cards side by side with `gap: 10`:
+   - Each: `Colors.surface` bg + border, centered, order = icon → LABEL → number → delta
+   - Icons: no background, `size={24}`, `color={Colors.primary}`
+   - Label: `fontSize: 9, fontWeight: "700", letterSpacing: 0.8, color: Colors.textMuted`, uppercase
+   - Value: `fontSize: 22, fontWeight: "900"`
+   - Delta: `fontSize: 11, fontWeight: "600"`, colored
+4. **List section with section header** — title + "Ver todos" link, then vertical list of row cards
+5. **Row card pattern** — `Colors.surface` bg + border + `borderRadius: 16` + left icon square + info + right chevron
 
 ## Auth Flow (Email + Password)
 
@@ -355,10 +392,12 @@ Group invite modal (`group/[id].tsx`) shows friends not already in the group + s
 
 1. User taps **"Do It"** button on `challenge/[id].tsx`
 2. Navigates to `challenge/photo-checkin.tsx` (modal)
-3. User takes photo with camera or picks from gallery
-4. Optional note added
+3. Camera opens automatically; user takes photo (or picks from gallery as fallback)
+4. **Group challenges only**: optional note field shown ("Cuéntale a tu grupo cómo te fue")
 5. On submit: photo uploaded to Supabase Storage → `POST /checkins` with `photo_url` + `notes`
-6. Checkin appears in challenge Activity tab
+6. **Group challenges**: navigates to Activity tab; **Personal challenges**: navigates to Mi Progreso tab
+
+Button text: "Enviar al grupo" for group challenges, "¡Lo hice!" for personal.
 
 ## Group Chat
 
@@ -389,16 +428,45 @@ Group invite modal (`group/[id].tsx`) shows friends not already in the group + s
 
 `GET /groups` includes up to 5 member previews (`id`, `username`, `display_name`, `avatar_url`) per group for bubble display in `GroupCard`. Member chips in `group/[id].tsx` also show real avatars. All text is in Spanish: "miembro/miembros", "Activo/Sin reto", "Ver Grupo", "Invitar".
 
+## Personal vs Group Challenges
+
+Challenges are separated into two distinct types based on `group_id`:
+
+**Personal challenges** (`group_id = null`):
+- Created from the **Retos** tab (compete.tsx) FAB → `/challenge/create` with no `groupId` param
+- Auto-start immediately (`status: 'active'`, `start_date: now()`) — no manual start needed
+- Only the creator is a participant; `POST /:id/join` returns 400
+- Auth: checked against creator or participant, not group membership
+- No `reward_description`, no `ghost_mode` in the create form
+- `challenge/[id].tsx` shows **"Mi Progreso" + "Actividad"** tabs (no leaderboard)
+  - Mi Progreso: 3-stat row (racha actual / mejor racha / % completado) + streak vs record bar comparison + full day calendar grid (circle per day, orange filled = done, orange border = today, dimmed = future)
+- `checkins.ts`: skips group member notifications when `challenge.group_id` is null
+- Per-challenge streak tracked in `ChallengeParticipant.streak_current/streak_longest`; effective streak computed at read time (returns 0 if last check-in was >1 day ago)
+
+**Group challenges** (`group_id` set):
+- Created from group detail screen or group challenge flow; require group membership
+- Start manually once 2+ participants have joined
+- `challenge/[id].tsx` shows **"Clasificación" + "Actividad"** tabs
+- Create form includes: reward/apuesta field + Ghost Mode toggle
+- Freemium limit: 1 active group challenge per group (redirects to `/premium`)
+
+**Schema**: `challenges.group_id` is nullable (`String? @db.Uuid`). Migration applied: `ALTER TABLE challenges ALTER COLUMN group_id DROP NOT NULL;`. Run `npm run db:generate` in `apps/api` after restarting the dev server to regenerate the Prisma client.
+
+**`ChallengeRetoCard` component** (`components/ChallengeRetoCard.tsx`): unified card with two variants:
+- `variant="personal"` — streak row (🔥 current / 🏆 best) + progress bar (checkin-based) + motivational message + "Do It" / "Ver" buttons
+- `variant="group"` — participant count row + reward + progress bar (time-based) — no Do It button
+Used in: `compete.tsx` Personal tab (personal variant) and `group/[id].tsx` active challenges (group variant).
+
 ## Key Business Rules
 
-- A challenge requires at least 2 participants before it can be started
+- A challenge requires at least 2 participants before it can be started (group challenges only)
 - Only the challenge creator can call `POST /challenges/:id/start`
 - Only the creator or a group admin can update or cancel a challenge
 - Only `pending` challenges can be updated; only `pending`/`active` can be cancelled
 - Group capacity: 2–10 members
 - Challenge durations are fixed at 7, 30, or 90 days
-- "Ghost Mode" hides exact leaderboard scores, showing rank order only
-- No monetary stakes in MVP — `reward_description` is free text only
+- "Ghost Mode" hides exact leaderboard scores, showing rank order only (group challenges only)
+- No monetary stakes in MVP — `reward_description` is free text only (group challenges only)
 - Redis is optional — checkin rate-limiting falls back to DB if Redis is unavailable
 
 ## Supabase Project
@@ -407,6 +475,92 @@ Group invite modal (`group/[id].tsx`) shows friends not already in the group + s
 - Project ID: `vqkxpnsynmwpgyjwhxwx`
 - Region: `us-east-2`
 - Storage bucket: `checkin-photos` (public) — used for both checkin photos and avatars
+
+## Freemium Model
+
+Free tier limits enforced on the client:
+- **1 group** — FAB in `groups.tsx` checks `groups.length >= 1` before showing create modal; redirects to `/premium` if over limit
+- **1 personal challenge** — FAB in `compete.tsx` checks `activeChallenges.length >= 1` (personal only, `group_id === null`); redirects to `/premium`
+- **1 group challenge** — "Crear nuevo reto" in `group/[id].tsx` checks `myChallengesData.challenges.length >= 1`; redirects to `/premium`
+
+`app/premium.tsx` — comparison table (Gratis vs Premium), "Suscribirse — Próximamente" button (no-op), "Ahora no" calls `router.back()`. When payment is implemented, replace the `>= 1` conditions with `!user.isPremium`.
+
+## Google Sign-In
+
+Implemented in `(auth)/sign-in.tsx` using `expo-web-browser`:
+1. `supabase.auth.signInWithOAuth({ provider: 'google', options: { skipBrowserRedirect: true } })` — gets OAuth URL without opening browser
+2. `WebBrowser.openAuthSessionAsync(url, redirectTo)` — opens Google auth in Chrome Custom Tab (Android) / SFSafariViewController (iOS)
+3. Redirect lands at `doit://auth/callback` — parse `access_token` + `refresh_token` from URL fragment
+4. `supabase.auth.setSession()` — triggers `onAuthStateChange` → auth guard handles routing
+
+Required Supabase config: Dashboard → Authentication → URL Configuration → Redirect URLs must include `doit://auth/callback`.
+Google Cloud Console: Web client with `https://vqkxpnsynmwpgyjwhxwx.supabase.co/auth/v1/callback` in authorized redirect URIs. `WebBrowser.maybeCompleteAuthSession()` called at module level.
+
+## Photo Upload
+
+**Image normalization** (`lib/api.ts`): `toJpeg()` runs before every upload. Converts `avif`, `webp`, `heic`, `heif`, `bmp`, `tiff` → JPEG using `expo-image-manipulator` (`compress: 0.85`). This prevents Supabase Storage 400 errors from Android phones that save in AVIF format. Applied to both `uploadCheckinPhoto()` and `uploadAvatarPhoto()`.
+
+**Portrait format**: Camera and gallery both use `aspect: [3, 4]`. Activity feed photos use `aspectRatio: 3/4` style. Check-in preview uses `aspectRatio: 3/4`.
+
+**Sharing photos** (`challenge/[id].tsx`): Tapping an activity photo opens a fullscreen modal with:
+- "DoIt APP" branding text (orange "Do" + white "It" + muted "APP")
+- Share button (iOS/Android only — hidden on web via `Platform.OS` check)
+- Download flow: `expo-file-system/legacy` `downloadAsync()` to cache → `expo-sharing` `shareAsync()` with `mimeType: 'image/jpeg'` + `UTI: 'public.image'`
+- File named `doit_share_{timestamp}.{ext}` to avoid stale cache
+
+## Group Invite Code
+
+The `invite_code` is returned by `GET /groups/:id` as part of the group object (no extra API call needed). It is displayed in the invite modal (`group/[id].tsx`) as large orange text with letter-spacing. The "Compartir enlace" option uses `group.invite_code` directly in the share message — not `POST /groups/:id/invite` which requires admin role.
+
+`openInvite: '1'` param on `group/[id]` route auto-opens the invite modal on mount — used by both `GroupCard` "Invitar" button and when accepting a group invite from `groups.tsx`.
+
+## Remove Group Member (Admin)
+
+`DELETE /groups/:id/members/:userId` now performs full cleanup:
+1. Deletes `GroupMember` record
+2. `deleteMany` on `ChallengeParticipant` for all challenges in the group
+3. `leaderboard.removeUser(challengeId, userId)` — `ZREM` from Redis sorted set for each challenge
+
+New Redis helper: `leaderboard.removeUser(challengeId, userId)` → `redis.zrem(key, userId)`.
+
+UI: Admin sees an `✕` (`close-circle` icon) on each member chip except their own. Tapping shows a confirmation `Alert` warning that progress will be deleted.
+
+## Installed Packages (Mobile)
+
+Beyond the original dependencies:
+- `expo-web-browser` — Google OAuth flow
+- `expo-file-system` — image download before sharing (import from `expo-file-system/legacy`)
+- `expo-sharing` — native share sheet with actual image file
+- `expo-image-manipulator` — normalize images to JPEG before upload
+
+## Family Module
+
+A separate accountability system distinct from Groups/Challenges, designed for smaller trusted circles (e.g., family members).
+
+**DB tables** — NOT in Prisma schema; created via raw SQL migrations:
+- `family_challenges` — `id`, `admin_id`, `title`, `description`, `duration_days`, `frequency`, `require_photo`, `reward_description`, `invite_code` (`FAM-XXXX` format), `status`, `start_date`, `end_date`, `created_at`
+- `family_participants` — `id`, `challenge_id`, `user_id`, `total_checkins`, `joined_at`
+- `family_checkins` — `id`, `challenge_id`, `user_id`, `photo_url`, `notes`, `approved` (nullable bool), `checked_in_at`, `created_at`
+
+**Key difference from group challenges:** Checkins require **admin approval** (`approved IS NULL` = pending, `true` = approved, `false` = rejected). If `require_photo = false`, checkins are auto-approved on submit.
+
+**API routes** (registered at `/family` in `apps/api/src/routes/family.ts`):
+- `POST /family` — create (admin)
+- `GET /family` — list mine (admin or participant)
+- `GET /family/:id` — detail; returns `{ challenge, role, participants, admin, pending_checkins, has_checked_in_today }`
+- `POST /family/join` — join via `{ invite_code }` (code format: `FAM-XXXX`)
+- `POST /family/:id/start` — start (admin only, needs ≥1 participant)
+- `POST /family/:id/checkins` — check in
+- `GET /family/:id/checkins` — list checkins
+- `PATCH /family/:id/checkins/:cid` — approve/reject (`{ action: 'approve' | 'reject' }`, admin only)
+- `POST /family/:id/invite-friend` — sends `family_invite` notification to a friend
+- `GET /family/invites` — pending `family_invite` notifications for current user
+- `POST /family/invites/:nid/accept` — join via notification
+- `POST /family/invites/:nid/decline`
+
+**Mobile:** `familyApi` in `lib/api.ts`; screens at `app/family/[id].tsx`, `create.tsx`, `join.tsx`, `checkin.tsx`.
+
+> **Important:** Because these tables are raw SQL (not Prisma models), schema changes require manual SQL migration — `npm run db:generate` alone is not enough.
 
 ## Language
 

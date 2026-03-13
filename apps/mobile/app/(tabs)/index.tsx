@@ -1,135 +1,189 @@
-import { useState, useCallback, useLayoutEffect } from 'react'
+import { useState, useCallback, useLayoutEffect } from "react";
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, RefreshControl, ActivityIndicator,
-} from 'react-native'
-import { useRouter, useFocusEffect, useNavigation } from 'expo-router'
-import { MaterialCommunityIcons } from '@expo/vector-icons'
-import { useQuery } from '@tanstack/react-query'
-import { usersApi, groupsApi } from '../../lib/api'
-import { useAuth } from '../../hooks/useAuth'
-import { Colors } from '../../constants/colors'
-import { HABIT_CATEGORY_CONFIG } from '../../constants'
-import type { Challenge, ChallengeParticipant } from '@doit/shared'
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  RefreshControl,
+  ActivityIndicator,
+  Image,
+} from "react-native";
+import { useRouter, useFocusEffect, useNavigation } from "expo-router";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
+import { usersApi, groupsApi } from "../../lib/api";
+import { useAuth } from "../../hooks/useAuth";
+import { Colors } from "../../constants/colors";
+import { HABIT_CATEGORY_CONFIG } from "../../constants";
+import type { Challenge, ChallengeParticipant, Group } from "@doit/shared";
 
-type DayTab = 'today' | 'upcoming' | 'completed'
+type DayTab = "today" | "upcoming" | "completed";
 
 type ActiveChallenge = Challenge & {
-  my_participation?: Pick<ChallengeParticipant, 'streak_current' | 'total_checkins'> | null
-  has_checked_in_today?: boolean
+  my_participation?: Pick<
+    ChallengeParticipant,
+    "streak_current" | "total_checkins"
+  > | null;
+  has_checked_in_today?: boolean;
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function motivationalText(pct: number): string {
+  if (pct === 0) return "¡Empieza hoy!";
+  if (pct < 26) return "¡Buen comienzo!";
+  if (pct < 51) return "¡Vas bien!";
+  if (pct < 76) return "¡Casi ahí!";
+  if (pct < 100) return "¡Falta poco!";
+  return "¡Lo lograste!";
 }
 
-// ─── Stat card ───────────────────────────────────────────────────────────────
-function StatCard({
-  icon, value, label, color,
-}: { icon: string; value: number; label: string; color: string }) {
-  return (
-    <View style={[statStyles.card, { backgroundColor: color + '1a' }]}>
-      <View style={[statStyles.iconWrap, { backgroundColor: color + '28' }]}>
-        <MaterialCommunityIcons name={icon as any} size={20} color={color} />
-      </View>
-      <Text style={[statStyles.value, { color }]}>{value}</Text>
-      <Text style={statStyles.label}>{label}</Text>
-    </View>
-  )
-}
+// Deterministic color per group (cycles through palette)
+const GROUP_COLORS = [
+  Colors.primary,
+  Colors.diet,
+  Colors.study,
+  Colors.sleep,
+  Colors.custom,
+  Colors.reading,
+];
+const GROUP_ICONS = [
+  "dumbbell",
+  "book-open-variant",
+  "food-apple",
+  "run-fast",
+  "brain",
+  "music-note",
+  "account-group",
+];
 
-const statStyles = StyleSheet.create({
-  card: { flex: 1, borderRadius: 16, padding: 14, alignItems: 'center', gap: 6 },
-  iconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  value: { fontSize: 24, fontWeight: '900' },
-  label: { color: Colors.textSecondary, fontSize: 11, fontWeight: '600', textAlign: 'center' },
-})
+function groupColor(index: number) {
+  return GROUP_COLORS[index % GROUP_COLORS.length];
+}
+function groupIcon(index: number): string {
+  return GROUP_ICONS[index % GROUP_ICONS.length];
+}
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
 export default function HomeScreen() {
-  const { user } = useAuth()
-  const router = useRouter()
-  const navigation = useNavigation()
-  const [dayTab, setDayTab] = useState<DayTab>('today')
+  const { user } = useAuth();
+  const router = useRouter();
+  const navigation = useNavigation();
+  const [dayTab, setDayTab] = useState<DayTab>("today");
 
-  const { data: statsData, refetch: refetchStats, isRefetching } = useQuery({
-    queryKey: ['user-stats', user?.id],
+  // ── Data fetching ──────────────────────────────────────────────────────────
+  const {
+    data: statsData,
+    refetch: refetchStats,
+    isRefetching,
+  } = useQuery({
+    queryKey: ["user-stats", user?.id],
     queryFn: () => usersApi.getStats(user!.id),
     enabled: !!user?.id,
     staleTime: 60_000,
-  })
+  });
 
-  const { data: challengesData, refetch: refetchChallenges, isLoading: isLoadingChallenges } = useQuery({
-    queryKey: ['my-challenges', user?.id],
+  const {
+    data: challengesData,
+    refetch: refetchChallenges,
+    isLoading: isLoadingChallenges,
+  } = useQuery({
+    queryKey: ["my-challenges", user?.id],
     queryFn: () => usersApi.getChallenges(user!.id),
     enabled: !!user?.id,
     staleTime: 30_000,
-  })
+  });
 
   const { data: groupsData } = useQuery({
-    queryKey: ['groups'],
+    queryKey: ["groups"],
     queryFn: groupsApi.list,
     staleTime: 60_000,
-  })
+  });
 
-  // Refetch on every focus (e.g. returning from create challenge or check-in)
   useFocusEffect(
     useCallback(() => {
-      refetchChallenges()
-      refetchStats()
-    }, [])
-  )
+      refetchChallenges();
+      refetchStats();
+    }, []),
+  );
 
-  const stats = (statsData?.stats as {
-    total_challenges: number
-    total_checkins: number
-    current_streaks: number
-    daily_streak: number
-    longest_streak: number
-    active_challenges: number
-  }) ?? null
+  // ── Derived data ───────────────────────────────────────────────────────────
+  const stats =
+    (statsData?.stats as {
+      total_challenges: number;
+      total_checkins: number;
+      current_streaks: number;
+      daily_streak: number;
+      has_checked_in_today: boolean;
+      longest_streak: number;
+      active_challenges: number;
+    }) ?? null;
 
-  const allChallenges = (challengesData?.challenges ?? []) as ActiveChallenge[]
-  const activeChallenges = allChallenges.filter((c) => c.status === 'active')
-  const pendingChallenges = allChallenges.filter((c) => c.status === 'pending')
-  const groupCount = (groupsData?.groups ?? []).length
+  const allChallenges = (challengesData?.challenges ?? []) as ActiveChallenge[];
+  const activeChallenges = allChallenges.filter((c) => c.status === "active");
+  const pendingChallenges = allChallenges.filter((c) => c.status === "pending");
+  const groups = (groupsData?.groups ?? []) as Group[];
 
-  // Daily progress
-  const totalActive = activeChallenges.length
-  const doneToday = activeChallenges.filter((c) => c.has_checked_in_today).length
-  const progressPct = totalActive > 0 ? Math.min(100, (doneToday / totalActive) * 100) : 0
+  const totalActive = activeChallenges.length;
+  const doneToday = activeChallenges.filter((c) => c.has_checked_in_today).length;
+  const remainingToday = totalActive - doneToday;
+  const progressPct = totalActive > 0 ? Math.min(100, (doneToday / totalActive) * 100) : 0;
+  const progressWidth = `${progressPct}%` as `${number}%`;
 
-  // Tab filters
-  const todayChallenges = activeChallenges.filter((c) => !c.has_checked_in_today)
-  const completedTodayChallenges = activeChallenges.filter((c) => c.has_checked_in_today)
-  const upcomingChallenges = pendingChallenges
+  const currentStreak = stats?.daily_streak ?? 0;
+  const checkedInToday = stats?.has_checked_in_today ?? false;
+  const streakColor = checkedInToday ? Colors.streakFire : Colors.textMuted;
 
-  const currentStreak = stats?.daily_streak ?? 0
+  const todayChallenges = activeChallenges.filter((c) => !c.has_checked_in_today);
+  const completedTodayChallenges = activeChallenges.filter((c) => c.has_checked_in_today);
+  const tabChallenges =
+    dayTab === "today"
+      ? todayChallenges
+      : dayTab === "upcoming"
+        ? pendingChallenges
+        : completedTodayChallenges;
 
+  // ── Header (streak + bell + settings) ─────────────────────────────────────
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <View style={styles.headerRight}>
           {currentStreak > 0 && (
-            <View style={styles.headerStreak}>
-              <MaterialCommunityIcons name="fire" size={18} color={Colors.streakFire} />
-              <Text style={styles.headerStreakText}>{currentStreak}</Text>
+            <View
+              style={[
+                styles.headerStreak,
+                {
+                  backgroundColor: streakColor + "20",
+                  borderColor: streakColor + "40",
+                },
+              ]}
+            >
+              <MaterialCommunityIcons name="fire" size={15} color={streakColor} />
+              <Text style={[styles.headerStreakText, { color: streakColor }]}>
+                {currentStreak}
+              </Text>
             </View>
           )}
-          <TouchableOpacity
-            onPress={() => router.navigate('/(tabs)/profile')}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialCommunityIcons name="cog-outline" size={22} color={Colors.textSecondary} />
+          <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <MaterialCommunityIcons
+              name="magnify"
+              size={22}
+              color={Colors.textSecondary}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <MaterialCommunityIcons
+              name="bell-outline"
+              size={22}
+              color={Colors.textSecondary}
+            />
           </TouchableOpacity>
         </View>
       ),
-    })
-  }, [currentStreak])
+    });
+  }, [currentStreak, checkedInToday]);
 
-  const tabChallenges =
-    dayTab === 'today'
-      ? todayChallenges
-      : dayTab === 'upcoming'
-        ? upcomingChallenges
-        : completedTodayChallenges
-
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
       <ScrollView
@@ -137,286 +191,596 @@ export default function HomeScreen() {
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
-            onRefresh={() => { refetchStats(); refetchChallenges() }}
+            onRefresh={() => {
+              refetchStats();
+              refetchChallenges();
+            }}
             tintColor={Colors.primary}
           />
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Greeting row ──────────────────────────────────── */}
+
+        {/* ── 1. Greeting ─────────────────────────────────────── */}
         <View style={styles.greeting}>
-          <Text style={styles.greetingHello}>
-            Hola, {user?.display_name ?? user?.username ?? 'ahí'}!
+          <Text style={styles.greetingName}>
+            Hola, {user?.display_name ?? user?.username ?? "ahí"}!
           </Text>
-          <Text style={styles.greetingSubtitle}>Mantengamos la racha viva hoy</Text>
+          <Text style={styles.greetingSubtitle}>
+            {checkedInToday
+              ? "Ya hiciste check-in hoy. ¡Sigue así!"
+              : "¿Listo para conquistar tus metas hoy?"}
+          </Text>
         </View>
 
-        {/* ── Daily Progress ────────────────────────────────── */}
-        {totalActive > 0 && (
-          <View style={styles.progressCard}>
-            <View style={styles.progressHeader}>
-              <Text style={styles.progressTitle}>Progreso Diario</Text>
-              <Text style={[styles.progressCount, { color: progressPct === 100 ? Colors.success : Colors.primary }]}>
-                {doneToday}/{totalActive} retos
-              </Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${progressPct}%` as `${number}%`,
-                    backgroundColor: progressPct === 100 ? Colors.success : Colors.primary,
-                  },
-                ]}
+        {/* ── 2. Daily Progress Card ───────────────────────────── */}
+        <View style={styles.progressCard}>
+          <Text style={styles.progressLabel}>PROGRESO DIARIO</Text>
+
+          <View style={styles.progressRow}>
+            <Text style={styles.progressMotivation}>
+              {motivationalText(progressPct)}
+            </Text>
+            <Text style={styles.progressPct}>{Math.round(progressPct)}%</Text>
+          </View>
+
+          {/* Progress bar */}
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: progressWidth,
+                  backgroundColor:
+                    progressPct === 100 ? Colors.success : Colors.primary,
+                },
+              ]}
+            />
+          </View>
+
+          <Text style={styles.progressSubtext}>
+            {totalActive === 0
+              ? "Únete a un reto para empezar"
+              : progressPct === 100
+                ? "¡Completaste todos tus retos de hoy!"
+                : `${remainingToday} ${remainingToday === 1 ? "tarea más" : "tareas más"} para tu meta diaria`}
+          </Text>
+        </View>
+
+        {/* ── 3. Stats Row (Retos / Puntos / Racha) ────────────── */}
+        <View style={styles.statsRow}>
+          {/* Retos */}
+          <View style={styles.statCard}>
+            <View style={styles.statIconWrap}>
+              <MaterialCommunityIcons
+                name="flag-checkered"
+                size={24}
+                color={Colors.primary}
               />
             </View>
-            <View style={styles.progressLabels}>
-              <Text style={styles.progressPctLabel}>0%</Text>
-              <Text style={styles.progressPctLabel}>100%</Text>
-            </View>
-          </View>
-        )}
-
-        {/* ── Stats row ─────────────────────────────────────── */}
-        <View style={styles.statsRow}>
-          <StatCard
-            icon="check-circle-outline"
-            value={stats?.total_checkins ?? 0}
-            label="Tareas Hechas"
-            color={Colors.primarySoft}
-          />
-          <StatCard
-            icon="trophy-outline"
-            value={user?.xp ?? 0}
-            label="Puntos"
-            color={Colors.success}
-          />
-          <StatCard
-            icon="account-group-outline"
-            value={groupCount}
-            label="Grupos"
-            color={Colors.primary}
-          />
-        </View>
-
-        {/* ── Day tabs ──────────────────────────────────────── */}
-        <View style={styles.dayTabs}>
-          {(['today', 'upcoming', 'completed'] as const).map((t) => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.dayTab, dayTab === t && styles.dayTabActive]}
-              onPress={() => setDayTab(t)}
-            >
-              <Text style={[styles.dayTabText, dayTab === t && styles.dayTabTextActive]}>
-                {t === 'today' ? 'Hoy' : t === 'upcoming' ? 'Próximos' : 'Completados'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* ── Challenge list ────────────────────────────────── */}
-        {isLoadingChallenges ? (
-          <View style={styles.emptyDay}>
-            <ActivityIndicator color={Colors.primary} size="large" />
-          </View>
-        ) : tabChallenges.length === 0 ? (
-          <View style={styles.emptyDay}>
-            <MaterialCommunityIcons
-              name={dayTab === 'completed' ? 'check-all' : 'flag-outline'}
-              size={28}
-              color={Colors.textMuted}
-            />
-            <Text style={styles.emptyDayText}>
-              {dayTab === 'today' && totalActive === 0
-                ? 'Sin retos activos — ¡únete a un grupo para empezar!'
-                : dayTab === 'today'
-                  ? '¡Todo listo por hoy! Buen trabajo.'
-                  : dayTab === 'upcoming'
-                    ? 'Sin retos pendientes'
-                    : 'Sin check-ins hoy'}
+            <Text style={styles.statLabel}>RETOS</Text>
+            <Text style={[styles.statValue, { color: Colors.text }]}>
+              {stats?.total_checkins ?? 0}
+            </Text>
+            <Text style={[styles.statDelta, { color: "#4CAF50" }]}>
+              +{doneToday} hoy
             </Text>
           </View>
-        ) : (
-          tabChallenges.map((c) => {
-            const cfg = HABIT_CATEGORY_CONFIG[c.habit_category as keyof typeof HABIT_CATEGORY_CONFIG] ?? HABIT_CATEGORY_CONFIG.custom
-            const streak = c.my_participation?.streak_current ?? 0
 
-            return (
-              <View key={c.id} style={styles.taskRow}>
-                <View style={[styles.taskIcon, { backgroundColor: cfg.color + '20' }]}>
-                  <MaterialCommunityIcons name="flag-outline" size={20} color={cfg.color} />
-                </View>
-                <View style={styles.taskInfo}>
-                  <Text style={styles.taskTitle} numberOfLines={1}>{c.title}</Text>
-                  <Text style={[styles.taskSub, { color: cfg.color }]}>
-                    {cfg.label}{streak > 0 ? ` · ${streak}-day streak` : ''}
-                  </Text>
-                </View>
+          {/* Puntos */}
+          <View style={styles.statCard}>
+            <View style={styles.statIconWrap}>
+              <MaterialCommunityIcons
+                name="trophy-outline"
+                size={24}
+                color={Colors.primary}
+              />
+            </View>
+            <Text style={styles.statLabel}>PUNTOS</Text>
+            <Text style={[styles.statValue, { color: Colors.text }]}>
+              {user?.xp && user.xp >= 1000
+                ? `${(user.xp / 1000).toFixed(1)}k`
+                : (user?.xp ?? 0)}
+            </Text>
+            <Text style={[styles.statDelta, { color: "#4CAF50" }]}>
+              XP total
+            </Text>
+          </View>
 
-                {dayTab === 'today' && (
-                  <TouchableOpacity
-                    style={styles.doItBtn}
-                    onPress={() => router.push({
-                      pathname: '/challenge/photo-checkin',
-                      params: { challengeId: c.id, challengeTitle: c.title, groupId: c.group_id },
-                    })}
-                    activeOpacity={0.85}
+          {/* Racha */}
+          <View style={styles.statCard}>
+            <View style={styles.statIconWrap}>
+              <MaterialCommunityIcons
+                name="fire"
+                size={24}
+                color={Colors.primary}
+              />
+            </View>
+            <Text style={styles.statLabel}>RACHA</Text>
+            <Text style={[styles.statValue, { color: Colors.text }]}>
+              {currentStreak}
+            </Text>
+            <Text style={[styles.statDelta, { color: Colors.streakFire }]}>
+              {currentStreak > 0 ? "¡Fuego!" : "sin racha"}
+            </Text>
+          </View>
+        </View>
+
+        {/* ── 4. Mis Grupos ────────────────────────────────────── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Mis Grupos</Text>
+            <TouchableOpacity onPress={() => router.navigate("/(tabs)/groups")}>
+              <Text style={styles.sectionLink}>Ver todos</Text>
+            </TouchableOpacity>
+          </View>
+
+          {groups.length === 0 ? (
+            <TouchableOpacity
+              style={styles.emptyGroupsCard}
+              onPress={() => router.navigate("/(tabs)/groups")}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons
+                name="account-group-outline"
+                size={24}
+                color={Colors.textMuted}
+              />
+              <Text style={styles.emptyGroupsText}>
+                Aún no tienes grupos — ¡únete o crea uno!
+              </Text>
+              <MaterialCommunityIcons
+                name="chevron-right"
+                size={24}
+                color={Colors.textMuted}
+              />
+            </TouchableOpacity>
+          ) : (
+            groups.map((group, index) => {
+              const members = (group as any).members ?? [];
+              const memberCount =
+                (group as any).member_count ?? members.length ?? 0;
+              const color = groupColor(index);
+              const icon = groupIcon(index);
+
+              return (
+                <TouchableOpacity
+                  key={group.id}
+                  style={styles.groupCard}
+                  onPress={() => router.push(`/group/${group.id}`)}
+                  activeOpacity={0.8}
+                >
+                  {/* Left icon */}
+                  <View
+                    style={[styles.groupIcon, { backgroundColor: color + "25" }]}
                   >
-                    <Text style={styles.doItBtnText}>Hazlo</Text>
-                  </TouchableOpacity>
-                )}
-                {dayTab === 'completed' && (
-                  <View style={styles.doneIndicator}>
-                    <MaterialCommunityIcons name="check-circle" size={22} color={Colors.success} />
+                    <MaterialCommunityIcons
+                      name={icon as any}
+                      size={22}
+                      color={color}
+                    />
                   </View>
-                )}
-                {dayTab === 'upcoming' && (
-                  <TouchableOpacity
-                    style={styles.viewBtn}
-                    onPress={() => router.push(`/challenge/${c.id}`)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.viewBtnText}>View</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )
-          })
-        )}
 
-        {/* ── Bottom CTAs ───────────────────────────────────── */}
-        <View style={styles.ctaRow}>
-          <TouchableOpacity
-            style={[styles.ctaBtn, styles.ctaBtnGroups]}
-            onPress={() => router.navigate('/(tabs)/groups')}
-            activeOpacity={0.85}
-          >
-            <MaterialCommunityIcons name="account-group-outline" size={18} color="#fff9f9" />
-            <Text style={styles.ctaBtnText}>Mis Grupos</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.ctaBtn, styles.ctaBtnCompete]}
-            onPress={() => router.navigate('/(tabs)/compete')}
-            activeOpacity={0.85}
-          >
-            <MaterialCommunityIcons name="trophy-outline" size={18} color="#fff9f9" />
-            <Text style={styles.ctaBtnText}>Competiciones</Text>
-          </TouchableOpacity>
+                  {/* Info */}
+                  <View style={styles.groupInfo}>
+                    <Text style={styles.groupName} numberOfLines={1}>
+                      {group.name}
+                    </Text>
+                    <Text style={styles.groupMeta}>
+                      {memberCount}{" "}
+                      {memberCount === 1 ? "miembro activo" : "miembros activos"}
+                    </Text>
+                  </View>
+
+                  {/* Arrow */}
+                  <MaterialCommunityIcons
+                    name="chevron-right"
+                    size={22}
+                    color={Colors.textMuted}
+                  />
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+
+        {/* ── 5. Mis Retos (tabs: Hoy / Próximos / Completados) ── */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>
+            Mis Retos
+          </Text>
+
+          {/* Tab pills */}
+          <View style={styles.dayTabs}>
+            {(["today", "upcoming", "completed"] as const).map((t) => (
+              <TouchableOpacity
+                key={t}
+                style={[styles.dayTab, dayTab === t && styles.dayTabActive]}
+                onPress={() => setDayTab(t)}
+              >
+                <Text
+                  style={[
+                    styles.dayTabText,
+                    dayTab === t && styles.dayTabTextActive,
+                  ]}
+                >
+                  {t === "today"
+                    ? "Hoy"
+                    : t === "upcoming"
+                      ? "Próximos"
+                      : "Hechos"}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* List */}
+          {isLoadingChallenges ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={Colors.primary} size="large" />
+            </View>
+          ) : tabChallenges.length === 0 ? (
+            <View style={styles.emptyState}>
+              <MaterialCommunityIcons
+                name={dayTab === "completed" ? "check-circle-outline" : "flag-outline"}
+                size={32}
+                color={Colors.textMuted}
+              />
+              <Text style={styles.emptyStateText}>
+                {dayTab === "today" && totalActive === 0
+                  ? "Sin retos activos"
+                  : dayTab === "today"
+                    ? "¡Todo listo por hoy!"
+                    : dayTab === "upcoming"
+                      ? "Sin retos pendientes"
+                      : "Sin check-ins hoy"}
+              </Text>
+            </View>
+          ) : (
+            tabChallenges.map((c) => {
+              const cfg =
+                HABIT_CATEGORY_CONFIG[
+                  c.habit_category as keyof typeof HABIT_CATEGORY_CONFIG
+                ] ?? HABIT_CATEGORY_CONFIG.custom;
+              const streak = c.my_participation?.streak_current ?? 0;
+
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.taskRow}
+                  onPress={() => router.push(`/challenge/${c.id}`)}
+                  activeOpacity={0.75}
+                >
+                  <View
+                    style={[
+                      styles.taskIcon,
+                      { backgroundColor: cfg.color + "22" },
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name="flag-outline"
+                      size={24}
+                      color={cfg.color}
+                    />
+                  </View>
+
+                  <View style={styles.taskInfo}>
+                    <Text style={styles.taskTitle} numberOfLines={1}>
+                      {c.title}
+                    </Text>
+                    <View style={styles.taskMeta}>
+                      <View
+                        style={[styles.dot, { backgroundColor: cfg.color }]}
+                      />
+                      <Text style={[styles.taskCategory, { color: cfg.color }]}>
+                        {cfg.label}
+                      </Text>
+                      {streak > 0 && (
+                        <Text style={styles.taskStreak}>· 🔥 {streak} días</Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {dayTab === "today" ? (
+                    <TouchableOpacity
+                      style={styles.doItBtn}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/challenge/photo-checkin",
+                          params: {
+                            challengeId: c.id,
+                            challengeTitle: c.title,
+                            groupId: c.group_id,
+                          },
+                        })
+                      }
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.doItBtnText}>Do It</Text>
+                    </TouchableOpacity>
+                  ) : dayTab === "completed" ? (
+                    <MaterialCommunityIcons
+                      name="check-circle"
+                      size={24}
+                      color={Colors.success}
+                    />
+                  ) : (
+                    <MaterialCommunityIcons
+                      name="chevron-right"
+                      size={24}
+                      color={Colors.textMuted}
+                    />
+                  )}
+                </TouchableOpacity>
+              );
+            })
+          )}
         </View>
       </ScrollView>
-
     </View>
-  )
+  );
 }
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { padding: 20, paddingBottom: 48 },
+  scroll: { padding: 20, paddingBottom: 56 },
 
-  // Header
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12, marginRight: 16 },
-  headerStreak: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: Colors.primary + '20', borderRadius: 20,
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderWidth: 1, borderColor: Colors.primary + '40',
+  // ── Header ──────────────────────────────────────────────────
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginRight: 16,
   },
-  headerStreakText: { color: Colors.streakFire, fontWeight: '900', fontSize: 15 },
+  headerStreak: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderRadius: 20,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
+  headerStreakText: { fontWeight: "800", fontSize: 13 },
 
-  // Greeting
-  greeting: { marginBottom: 20 },
-  greetingHello: { color: Colors.text, fontSize: 26, fontWeight: '800' },
-  greetingSubtitle: { color: Colors.textSecondary, fontSize: 14, marginTop: 4 },
+  // ── Greeting ────────────────────────────────────────────────
+  greeting: { marginBottom: 24 },
+  greetingName: {
+    color: Colors.text,
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+  },
+  greetingSubtitle: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    marginTop: 4,
+    lineHeight: 20,
+  },
 
-  // Daily progress
+  // ── Progress Card ────────────────────────────────────────────
   progressCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 20,
+    marginBottom: 14,
+  },
+  progressLabel: {
+    color: Colors.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    marginBottom: 10,
+  },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  progressMotivation: {
+    color: Colors.text,
+    fontSize: 26,
+    fontWeight: "800",
+    flex: 1,
+    lineHeight: 32,
+  },
+  progressPct: {
+    color: Colors.primary,
+    fontSize: 40,
+    fontWeight: "900",
+    lineHeight: 44,
+    letterSpacing: -1,
+  },
+  progressTrack: {
+    height: 8,
+    backgroundColor: Colors.border,
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 10,
+  },
+  progressFill: { height: "100%", borderRadius: 4 },
+  progressSubtext: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "500",
+  },
+
+  // ── Stats Row ────────────────────────────────────────────────
+  statsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 24,
+    marginTop: 6,
+  },
+  statCard: {
+    flex: 1,
+    borderRadius: 16,
+    padding: 14,
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  statIconWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  statValue: {
+    fontSize: 22,
+    fontWeight: "900",
+    lineHeight: 26,
+  },
+  statLabel: {
+    color: Colors.textMuted,
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+  },
+  statDelta: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+
+  // ── Section ──────────────────────────────────────────────────
+  section: { marginBottom: 24 },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    color: Colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  sectionLink: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  // ── Group Cards ───────────────────────────────────────────────
+  emptyGroupsCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     backgroundColor: Colors.surface,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: Colors.border,
-    marginBottom: 16,
-    gap: 10,
   },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  progressTitle: { color: Colors.text, fontSize: 15, fontWeight: '700' },
-  progressCount: { fontSize: 14, fontWeight: '700' },
-  progressTrack: { height: 8, backgroundColor: Colors.border, borderRadius: 4, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 4 },
-  progressLabels: { flexDirection: 'row', justifyContent: 'space-between' },
-  progressPctLabel: { color: Colors.textMuted, fontSize: 11 },
+  emptyGroupsText: {
+    flex: 1,
+    color: Colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  groupCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 14,
+  },
+  groupIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  groupInfo: { flex: 1 },
+  groupName: {
+    color: Colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
+  groupMeta: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: "500",
+  },
 
-  // Stats
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-
-  // Day tabs
+  // ── Task Tabs ─────────────────────────────────────────────────
   dayTabs: {
-    flexDirection: 'row',
+    flexDirection: "row",
     backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: 4,
-    marginBottom: 16,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  dayTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
+  dayTab: {
+    flex: 1,
+    paddingVertical: 9,
+    alignItems: "center",
+    borderRadius: 9,
+  },
   dayTabActive: { backgroundColor: Colors.primary },
-  dayTabText: { color: Colors.textSecondary, fontWeight: '700', fontSize: 13 },
-  dayTabTextActive: { color: '#000' },
+  dayTabText: { color: Colors.textSecondary, fontWeight: "700", fontSize: 13 },
+  dayTabTextActive: { color: "#000" },
 
-  // Challenge task rows
+  // ── Task Rows ─────────────────────────────────────────────────
   taskRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: Colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 14,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: Colors.border,
     gap: 12,
   },
-  taskIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  taskIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   taskInfo: { flex: 1 },
-  taskTitle: { color: Colors.text, fontWeight: '700', fontSize: 15 },
-  taskSub: { fontSize: 12, fontWeight: '600', marginTop: 3 },
+  taskTitle: { color: Colors.text, fontWeight: "700", fontSize: 15 },
+  taskMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 3,
+  },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+  taskCategory: { fontSize: 12, fontWeight: "600" },
+  taskStreak: { color: Colors.textMuted, fontSize: 12 },
   doItBtn: {
     backgroundColor: Colors.primary,
     borderRadius: 10,
     paddingVertical: 9,
-    paddingHorizontal: 16,
+    paddingHorizontal: 15,
   },
-  doItBtnText: { color: '#000', fontWeight: '800', fontSize: 14 },
-  doneIndicator: { paddingHorizontal: 4 },
-  viewBtn: {
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 10,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
+  doItBtnText: { color: "#000", fontWeight: "800", fontSize: 14 },
+
+  // ── Empty states ───────────────────────────────────────────────
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 28,
+    gap: 10,
   },
-  viewBtnText: { color: Colors.textSecondary, fontWeight: '700', fontSize: 13 },
-
-  // Empty state
-  emptyDay: { alignItems: 'center', paddingVertical: 36, gap: 10 },
-  emptyDayText: { color: Colors.textSecondary, fontSize: 14, textAlign: 'center', lineHeight: 20 },
-
-  // CTAs
-  ctaRow: { flexDirection: 'row', gap: 12, marginTop: 24 },
-  ctaBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderRadius: 14,
-    paddingVertical: 16,
+  emptyStateText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    textAlign: "center",
   },
-  ctaBtnGroups: { backgroundColor: '#3B82F6' },
-  ctaBtnCompete: { backgroundColor: Colors.primary },
-  ctaBtnText: { color: '#fff9f9', fontWeight: '700', fontSize: 15 },
-
-})
+});

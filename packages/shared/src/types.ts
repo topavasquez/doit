@@ -10,6 +10,7 @@ export interface User {
   level: number
   xp: number
   timezone: string
+  is_pro?: boolean
   created_at: string
 }
 
@@ -25,6 +26,8 @@ export interface Group {
   id: string
   name: string
   avatar_url?: string | null
+  cover_image?: string | null
+  cover_color?: string | null
   created_by: string
   invite_code: string
   created_at: string
@@ -44,7 +47,7 @@ export interface GroupMember {
 
 export interface Challenge {
   id: string
-  group_id: string
+  group_id?: string | null
   created_by: string
   title: string
   description?: string | null
@@ -121,7 +124,7 @@ export interface CreateGroupBody {
 }
 
 export interface CreateChallengeBody {
-  group_id: string
+  group_id?: string
   title: string
   description?: string
   habit_category: HabitCategory

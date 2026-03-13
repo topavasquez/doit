@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Share, Alert,
   Image, RefreshControl, ActivityIndicator, Modal, FlatList,
@@ -7,8 +7,10 @@ import {
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { groupsApi, challengesApi, friendsApi } from '../../lib/api'
+import * as ImagePicker from 'expo-image-picker'
+import { groupsApi, challengesApi, friendsApi, usersApi, uploadGroupCoverPhoto } from '../../lib/api'
 import { ChallengeCard } from '../../components/ChallengeCard'
+import { ChallengeRetoCard } from '../../components/ChallengeRetoCard'
 import { Colors } from '../../constants/colors'
 import { useAuth } from '../../hooks/useAuth'
 import { formatRelativeTime } from '../../constants'
@@ -16,19 +18,32 @@ import type { Group, GroupMember, Challenge, GroupMessage } from '@doit/shared'
 
 type GroupTab = 'challenges' | 'chat'
 
+const COVER_COLORS = [
+  '#FF7A00', '#FF9A3D', '#E84444', '#f87858',
+  '#C8A060', '#E8A820', '#8A8070', '#9A9A9A',
+  '#5A3E2B', '#2D2D2D', '#1A1A2E', '#16213E',
+]
+
 const GROUP_COLORS = [Colors.primary, '#3B82F6', '#8B5CF6', '#22C55E', '#f0a500', '#EC4899']
 function pickColor(name: string) { return GROUP_COLORS[name.charCodeAt(0) % GROUP_COLORS.length] }
 
 export default function GroupScreen() {
-  const { id, initialTab } = useLocalSearchParams<{ id: string; initialTab?: string }>()
+  const { id, initialTab, openInvite } = useLocalSearchParams<{ id: string; initialTab?: string; openInvite?: string }>()
   const router = useRouter()
   const { user } = useAuth()
   const qc = useQueryClient()
   const [activeTab, setActiveTab] = useState<GroupTab>(initialTab === 'chat' ? 'chat' : 'challenges')
-  const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [inviteModalOpen, setInviteModalOpen] = useState(openInvite === '1')
+
+  useEffect(() => {
+    if (openInvite === '1') setInviteModalOpen(true)
+  }, [])
   const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set())
   const [messageText, setMessageText] = useState('')
   const [sending, setSending] = useState(false)
+  const [coverModalOpen, setCoverModalOpen] = useState(false)
+  const [selectedColor, setSelectedColor] = useState<string | null>(null)
+  const [savingCover, setSavingCover] = useState(false)
   const flatListRef = useRef<FlatList>(null)
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
@@ -50,10 +65,37 @@ export default function GroupScreen() {
     onError: (err: Error) => Alert.alert('Error', err.message),
   })
 
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => groupsApi.removeMember(id, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['group', id] })
+      qc.invalidateQueries({ queryKey: ['leaderboard'] })
+    },
+    onError: () => Alert.alert('Error', 'No se pudo eliminar al miembro'),
+  })
+
+  function confirmRemoveMember(userId: string, name: string) {
+    Alert.alert(
+      'Eliminar miembro',
+      `¿Eliminar a ${name} del grupo? Se borrará su progreso en todos los retos.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => removeMemberMutation.mutate(userId) },
+      ],
+    )
+  }
+
   const { data: friendsData } = useQuery({
     queryKey: ['friends'],
     queryFn: () => friendsApi.list(),
     enabled: inviteModalOpen,
+  })
+
+  const { data: myChallengesData } = useQuery({
+    queryKey: ['my-challenges', user?.id],
+    queryFn: () => usersApi.getChallenges(user!.id),
+    enabled: !!user?.id,
+    staleTime: 30_000,
   })
 
   const group = data?.group as (Group & { members: GroupMember[]; challenges: Challenge[] }) | undefined
@@ -117,10 +159,47 @@ export default function GroupScreen() {
   }
 
   async function handleShare() {
-    const { invite_code } = await groupsApi.getInvite(group!.id)
     Share.share({
-      message: `¡Únete a mi grupo DoIt "${group!.name}"! Usa el código de invitación: ${invite_code}\n\nDescarga DoIt para competir en hábitos reales con apuestas reales.`,
+      message: `¡Únete a mi grupo DoIt "${group!.name}"! Usa el código de invitación: ${group!.invite_code}\n\nDescarga DoIt para competir en hábitos reales con apuestas reales.`,
     })
+  }
+
+  async function handlePickCoverImage() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.85,
+    })
+    if (result.canceled || !result.assets?.[0]) return
+    setSavingCover(true)
+    try {
+      const url = await uploadGroupCoverPhoto(result.assets[0].uri)
+      await groupsApi.updateCover(id, { cover_image: url, cover_color: null })
+      qc.invalidateQueries({ queryKey: ['group', id] })
+      qc.invalidateQueries({ queryKey: ['groups'] })
+      setCoverModalOpen(false)
+    } catch {
+      Alert.alert('Error', 'No se pudo subir la imagen')
+    } finally {
+      setSavingCover(false)
+    }
+  }
+
+  async function handleSaveColor() {
+    if (!selectedColor) return
+    setSavingCover(true)
+    try {
+      await groupsApi.updateCover(id, { cover_color: selectedColor, cover_image: null })
+      qc.invalidateQueries({ queryKey: ['group', id] })
+      qc.invalidateQueries({ queryKey: ['groups'] })
+      setCoverModalOpen(false)
+      setSelectedColor(null)
+    } catch {
+      Alert.alert('Error', 'No se pudo guardar')
+    } finally {
+      setSavingCover(false)
+    }
   }
 
   // ── Loading state ───────────────────────────────────────────────────────────
@@ -142,6 +221,14 @@ export default function GroupScreen() {
       <View style={styles.modalSheet}>
         <View style={styles.modalHandle} />
         <Text style={styles.modalTitle}>Invitar al grupo</Text>
+
+        {/* Invite code display */}
+        <View style={styles.inviteCodeBox}>
+          <Text style={styles.inviteCodeLabel}>Código de invitación</Text>
+          <Text style={styles.inviteCodeText}>{group.invite_code}</Text>
+          <Text style={styles.inviteCodeHint}>Comparte este código para que otros se unan</Text>
+        </View>
+
         <TouchableOpacity style={styles.shareLinkBtn} onPress={() => { setInviteModalOpen(false); handleShare() }}>
           <View style={styles.shareLinkIcon}>
             <MaterialCommunityIcons name="link-variant" size={20} color={Colors.primary} />
@@ -212,12 +299,21 @@ export default function GroupScreen() {
           <MaterialCommunityIcons name="account-plus-outline" size={16} color={groupColor} />
           <Text style={[styles.inviteBtnText, { color: groupColor }]}>Invitar</Text>
         </TouchableOpacity>
+        {myRole === 'admin' && (
+          <TouchableOpacity
+            style={styles.heroEditBtn}
+            onPress={() => setCoverModalOpen(true)}
+          >
+            <MaterialCommunityIcons name="pencil" size={16} color={Colors.text} />
+          </TouchableOpacity>
+        )}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.membersScroll}>
         {group.members?.map((m) => {
-          const u = m.user as { username: string; display_name?: string | null; avatar_url?: string | null } | undefined
+          const u = m.user as { id?: string; username: string; display_name?: string | null; avatar_url?: string | null } | undefined
           const name = u?.display_name ?? u?.username ?? '?'
           const isAdmin = m.role === 'admin'
+          const canRemove = myRole === 'admin' && m.user_id !== user?.id
           return (
             <View key={m.id} style={styles.memberChip}>
               {u?.avatar_url ? (
@@ -231,6 +327,14 @@ export default function GroupScreen() {
                 <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
                 {isAdmin && <Text style={[styles.adminTag, { color: groupColor }]}>Admin</Text>}
               </View>
+              {canRemove && (
+                <TouchableOpacity
+                  onPress={() => confirmRemoveMember(m.user_id, name)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <MaterialCommunityIcons name="close-circle" size={16} color={Colors.textMuted} />
+                </TouchableOpacity>
+              )}
             </View>
           )
         })}
@@ -274,7 +378,19 @@ export default function GroupScreen() {
                 <View style={styles.sectionDot} />
                 <Text style={styles.sectionTitle}>Activos</Text>
               </View>
-              {activeChallenges.map((c) => <ChallengeCard key={c.id} challenge={c} />)}
+              {activeChallenges.map((c) => {
+                const cc = c as Challenge & { _count?: { participants?: number }; participants?: { total_checkins?: number }[] }
+                return (
+                  <ChallengeRetoCard
+                    key={c.id}
+                    variant="group"
+                    challenge={c}
+                    participantCount={cc._count?.participants}
+                    rewardDescription={c.reward_description}
+                    onPress={() => router.push(`/challenge/${c.id}`)}
+                  />
+                )
+              })}
             </View>
           )}
 
@@ -309,7 +425,11 @@ export default function GroupScreen() {
 
           <TouchableOpacity
             style={styles.createBtn}
-            onPress={() => router.push({ pathname: '/challenge/create', params: { groupId: id } })}
+            onPress={() => {
+              const total = (myChallengesData?.challenges ?? []).length
+              if (!user?.is_pro && total >= 1) { router.push('/premium'); return }
+              router.push({ pathname: '/challenge/create', params: { groupId: id } })
+            }}
             activeOpacity={0.85}
           >
             <MaterialCommunityIcons name="plus-circle-outline" size={22} color={Colors.primary} />
@@ -317,6 +437,67 @@ export default function GroupScreen() {
           </TouchableOpacity>
         </ScrollView>
         {inviteModal}
+        <Modal visible={coverModalOpen} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.coverSheet}>
+              <View style={styles.coverSheetHandle} />
+              <Text style={styles.coverSheetTitle}>Personalizar grupo</Text>
+
+              {/* Image option */}
+              <TouchableOpacity style={styles.coverImageBtn} onPress={handlePickCoverImage} disabled={savingCover}>
+                <MaterialCommunityIcons name="image-plus" size={22} color={Colors.primary} />
+                <Text style={styles.coverImageBtnText}>Cambiar foto de portada</Text>
+                <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textMuted} />
+              </TouchableOpacity>
+
+              {/* Divider */}
+              <View style={styles.coverDivider}>
+                <View style={styles.coverDividerLine} />
+                <Text style={styles.coverDividerText}>o elige un color</Text>
+                <View style={styles.coverDividerLine} />
+              </View>
+
+              {/* Color palette */}
+              <View style={styles.colorGrid}>
+                {COVER_COLORS.map((color) => (
+                  <TouchableOpacity
+                    key={color}
+                    style={[
+                      styles.colorSwatch,
+                      { backgroundColor: color },
+                      selectedColor === color && styles.colorSwatchSelected,
+                    ]}
+                    onPress={() => setSelectedColor(color)}
+                  >
+                    {selectedColor === color && (
+                      <MaterialCommunityIcons name="check" size={18} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Actions */}
+              <View style={styles.coverActions}>
+                <TouchableOpacity
+                  style={styles.coverCancelBtn}
+                  onPress={() => { setCoverModalOpen(false); setSelectedColor(null) }}
+                >
+                  <Text style={styles.coverCancelText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.coverSaveBtn, (!selectedColor || savingCover) && { opacity: 0.4 }]}
+                  onPress={handleSaveColor}
+                  disabled={!selectedColor || savingCover}
+                >
+                  {savingCover
+                    ? <ActivityIndicator size="small" color="#000" />
+                    : <Text style={styles.coverSaveText}>Guardar color</Text>
+                  }
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </>
     )
   }
@@ -386,6 +567,67 @@ export default function GroupScreen() {
         </View>
       </KeyboardAvoidingView>
       {inviteModal}
+      <Modal visible={coverModalOpen} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.coverSheet}>
+            <View style={styles.coverSheetHandle} />
+            <Text style={styles.coverSheetTitle}>Personalizar grupo</Text>
+
+            {/* Image option */}
+            <TouchableOpacity style={styles.coverImageBtn} onPress={handlePickCoverImage} disabled={savingCover}>
+              <MaterialCommunityIcons name="image-plus" size={22} color={Colors.primary} />
+              <Text style={styles.coverImageBtnText}>Cambiar foto de portada</Text>
+              <MaterialCommunityIcons name="chevron-right" size={18} color={Colors.textMuted} />
+            </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={styles.coverDivider}>
+              <View style={styles.coverDividerLine} />
+              <Text style={styles.coverDividerText}>o elige un color</Text>
+              <View style={styles.coverDividerLine} />
+            </View>
+
+            {/* Color palette */}
+            <View style={styles.colorGrid}>
+              {COVER_COLORS.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorSwatch,
+                    { backgroundColor: color },
+                    selectedColor === color && styles.colorSwatchSelected,
+                  ]}
+                  onPress={() => setSelectedColor(color)}
+                >
+                  {selectedColor === color && (
+                    <MaterialCommunityIcons name="check" size={18} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Actions */}
+            <View style={styles.coverActions}>
+              <TouchableOpacity
+                style={styles.coverCancelBtn}
+                onPress={() => { setCoverModalOpen(false); setSelectedColor(null) }}
+              >
+                <Text style={styles.coverCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.coverSaveBtn, (!selectedColor || savingCover) && { opacity: 0.4 }]}
+                onPress={handleSaveColor}
+                disabled={!selectedColor || savingCover}
+              >
+                {savingCover
+                  ? <ActivityIndicator size="small" color="#000" />
+                  : <Text style={styles.coverSaveText}>Guardar color</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </>
   )
 }
@@ -405,6 +647,20 @@ const styles = StyleSheet.create({
   modalSection: { color: Colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 10 },
   modalEmpty: { color: Colors.textMuted, fontSize: 14, textAlign: 'center', paddingVertical: 16 },
   modalList: { maxHeight: 280 },
+  inviteCodeBox: {
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: 14,
+    padding: 16,
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 12,
+  },
+  inviteCodeLabel: { color: Colors.textMuted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
+  inviteCodeText: { color: Colors.primary, fontSize: 28, fontWeight: '900', letterSpacing: 6 },
+  inviteCodeHint: { color: Colors.textMuted, fontSize: 12, marginTop: 2 },
+
   shareLinkBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: Colors.surfaceElevated, borderRadius: 14, padding: 14,
@@ -536,4 +792,63 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
   },
   sendBtnDisabled: { opacity: 0.4 },
+
+  heroEditBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverSheet: {
+    backgroundColor: Colors.surfaceElevated,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 44,
+    gap: 16,
+  },
+  coverSheetHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: Colors.border,
+    alignSelf: 'center',
+    marginBottom: 4,
+  },
+  coverSheetTitle: { color: Colors.text, fontSize: 18, fontWeight: '800' },
+  coverImageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  coverImageBtnText: { flex: 1, color: Colors.text, fontSize: 15, fontWeight: '600' },
+  coverDivider: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  coverDividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
+  coverDividerText: { color: Colors.textMuted, fontSize: 12, fontWeight: '600' },
+  colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  colorSwatch: {
+    width: 52, height: 52, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  colorSwatchSelected: {
+    borderWidth: 3,
+    borderColor: Colors.text,
+  },
+  coverActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  coverCancelBtn: {
+    flex: 1, borderRadius: 12, paddingVertical: 14,
+    alignItems: 'center', borderWidth: 1, borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  coverCancelText: { color: Colors.textSecondary, fontWeight: '700', fontSize: 15 },
+  coverSaveBtn: {
+    flex: 2, backgroundColor: Colors.primary,
+    borderRadius: 12, paddingVertical: 14, alignItems: 'center',
+  },
+  coverSaveText: { color: '#000', fontWeight: '800', fontSize: 15 },
 })

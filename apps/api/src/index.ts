@@ -15,6 +15,7 @@ import { checkinRoutes } from "./routes/checkins";
 import { leaderboardRoutes } from "./routes/leaderboard";
 import { notificationRoutes } from "./routes/notifications";
 import { friendRoutes } from "./routes/friends";
+import { familyRoutes } from "./routes/family";
 
 const app = Fastify({
   logger: {
@@ -85,6 +86,7 @@ async function bootstrap() {
   await app.register(leaderboardRoutes, { prefix: "/leaderboard" });
   await app.register(notificationRoutes, { prefix: "/notifications" });
   await app.register(friendRoutes, { prefix: "/friends" });
+  await app.register(familyRoutes, { prefix: "/family" });
 
   // Global error handler
   app.setErrorHandler((error: FastifyError, _request, reply) => {

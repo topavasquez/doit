@@ -17,7 +17,8 @@ const FREQUENCIES: { value: ChallengeFrequency; label: string; desc: string }[] 
 ]
 
 export default function CreateChallengeScreen() {
-  const { groupId } = useLocalSearchParams<{ groupId: string }>()
+  const { groupId } = useLocalSearchParams<{ groupId?: string }>()
+  const isPersonal = !groupId
   const router = useRouter()
   const qc = useQueryClient()
 
@@ -32,7 +33,7 @@ export default function CreateChallengeScreen() {
   const createMutation = useMutation({
     mutationFn: () =>
       challengesApi.create({
-        group_id: groupId,
+        group_id: groupId ?? undefined,
         title: title.trim(),
         description: description.trim() || undefined,
         habit_category: category,
@@ -42,7 +43,8 @@ export default function CreateChallengeScreen() {
         ghost_mode: ghostMode,
       }),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['group', groupId] })
+      if (groupId) qc.invalidateQueries({ queryKey: ['group', groupId] })
+      qc.invalidateQueries({ queryKey: ['my-challenges'] })
       const c = res.challenge as Challenge
       router.replace(`/challenge/${c.id}`)
     },
@@ -53,7 +55,7 @@ export default function CreateChallengeScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Nuevo Reto' }} />
+      <Stack.Screen options={{ title: isPersonal ? 'Reto Personal' : 'Nuevo Reto' }} />
       <ScrollView style={styles.container} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {/* Title */}
         <View style={styles.field}>
@@ -134,32 +136,36 @@ export default function CreateChallengeScreen() {
           </View>
         </View>
 
-        {/* Reward */}
-        <View style={styles.field}>
-          <Text style={styles.label}>Recompensa / Apuesta</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="ej. Los que pierden invitan el brunch al grupo"
-            placeholderTextColor={Colors.textMuted}
-            value={reward}
-            onChangeText={setReward}
-            maxLength={200}
-          />
-          <Text style={styles.hint}>Mantenlo social — cena, tareas, café, derechos de alardear</Text>
-        </View>
+        {/* Reward — group challenges only */}
+        {!isPersonal && (
+          <View style={styles.field}>
+            <Text style={styles.label}>Recompensa / Apuesta</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="ej. Los que pierden invitan el brunch al grupo"
+              placeholderTextColor={Colors.textMuted}
+              value={reward}
+              onChangeText={setReward}
+              maxLength={200}
+            />
+            <Text style={styles.hint}>Mantenlo social — cena, tareas, café, derechos de alardear</Text>
+          </View>
+        )}
 
-        {/* Ghost Mode */}
-        <View style={styles.field}>
-          <TouchableOpacity style={styles.toggleRow} onPress={() => setGhostMode(!ghostMode)}>
-            <View style={styles.toggleInfo}>
-              <Text style={styles.toggleLabel}>Modo Fantasma</Text>
-              <Text style={styles.toggleDesc}>Oculta el % de completado — solo muestra el rango. Añade tensión.</Text>
-            </View>
-            <View style={[styles.toggle, ghostMode && styles.toggleOn]}>
-              <View style={[styles.toggleKnob, ghostMode && styles.toggleKnobOn]} />
-            </View>
-          </TouchableOpacity>
-        </View>
+        {/* Ghost Mode — group challenges only */}
+        {!isPersonal && (
+          <View style={styles.field}>
+            <TouchableOpacity style={styles.toggleRow} onPress={() => setGhostMode(!ghostMode)}>
+              <View style={styles.toggleInfo}>
+                <Text style={styles.toggleLabel}>Modo Fantasma</Text>
+                <Text style={styles.toggleDesc}>Oculta el % de completado — solo muestra el rango. Añade tensión.</Text>
+              </View>
+              <View style={[styles.toggle, ghostMode && styles.toggleOn]}>
+                <View style={[styles.toggleKnob, ghostMode && styles.toggleKnobOn]} />
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Submit */}
         <TouchableOpacity
@@ -172,7 +178,9 @@ export default function CreateChallengeScreen() {
           </Text>
         </TouchableOpacity>
 
-        <Text style={styles.submitHint}>Necesitarás al menos 2 participantes antes de iniciar</Text>
+        {!isPersonal && (
+          <Text style={styles.submitHint}>Necesitarás al menos 2 participantes antes de iniciar</Text>
+        )}
       </ScrollView>
     </>
   )

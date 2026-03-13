@@ -77,6 +77,36 @@ export async function groupRoutes(app: FastifyInstance) {
     },
   })
 
+  // PATCH /groups/:id — update name, cover_image, cover_color (admin only)
+  app.patch('/:id', {
+    preHandler: requireAuth,
+    handler: async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const updateSchema = z.object({
+        name: z.string().min(1).max(50).optional(),
+        cover_image: z.string().url().optional().nullable(),
+        cover_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
+      })
+      const parsed = updateSchema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: parsed.error.errors[0].message })
+      }
+
+      const member = await prisma.groupMember.findUnique({
+        where: { group_id_user_id: { group_id: id, user_id: request.userId } },
+      })
+      if (!member || member.role !== 'admin') {
+        return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Solo el admin puede editar el grupo' })
+      }
+
+      const group = await prisma.group.update({
+        where: { id },
+        data: parsed.data,
+      })
+      return reply.send({ group })
+    },
+  })
+
   // GET /groups/invites — pending group_invite notifications for current user
   app.get('/invites', {
     preHandler: requireAuth,
@@ -329,9 +359,27 @@ export async function groupRoutes(app: FastifyInstance) {
         return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: 'Only admins can remove members' })
       }
 
+      // Find all challenges in this group to clean up leaderboards
+      const groupChallenges = await prisma.challenge.findMany({
+        where: { group_id: id },
+        select: { id: true },
+      })
+
       await prisma.groupMember.delete({
         where: { group_id_user_id: { group_id: id, user_id: userId } },
       })
+
+      // Remove from all challenge participations in this group
+      await prisma.challengeParticipant.deleteMany({
+        where: { user_id: userId, challenge_id: { in: groupChallenges.map((c) => c.id) } },
+      })
+
+      // Remove from Redis leaderboards
+      for (const challenge of groupChallenges) {
+        try {
+          await leaderboard.removeUser(challenge.id, userId)
+        } catch { /* Redis optional */ }
+      }
 
       return reply.status(204).send()
     },

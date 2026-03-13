@@ -2,6 +2,7 @@ import { View, Text, ScrollView, StyleSheet, Image, ActivityIndicator } from 're
 import { useLocalSearchParams, Stack } from 'expo-router'
 import { useQuery } from '@tanstack/react-query'
 import { usersApi, friendsApi } from '../../lib/api'
+import { ProBadge } from '../../components/ProBadge'
 import { Colors } from '../../constants/colors'
 import { useAuth } from '../../hooks/useAuth'
 import type { User } from '@doit/shared'
@@ -66,7 +67,10 @@ export default function UserProfileScreen() {
               <Text style={styles.avatarText}>{initial}</Text>
             </View>
           )}
-          <Text style={styles.displayName}>{user.display_name ?? user.username}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={styles.displayName}>{user.display_name ?? user.username}</Text>
+            {(user as any).is_pro && <ProBadge size="md" />}
+          </View>
           <Text style={styles.username}>@{user.username}</Text>
 
           <View style={styles.badgeRow}>

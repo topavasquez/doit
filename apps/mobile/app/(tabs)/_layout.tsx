@@ -23,8 +23,10 @@ function SettingsButton() {
 function HeaderLogo() {
   return (
     <Image
-      source={{ uri: 'https://res.cloudinary.com/dohtcfagz/image/upload/v1773112079/logo-black_esrgmn.png' }}
-      style={{ height: 36, width: 120, resizeMode: 'contain', marginLeft: 16 }}
+      source={{
+        uri: "https://res.cloudinary.com/dohtcfagz/image/upload/v1773112079/logo-black_esrgmn.png",
+      }}
+      style={{ height: 45, width: 120, resizeMode: "contain", marginLeft: -18 }}
     />
   );
 }
@@ -37,7 +39,7 @@ export default function TabsLayout() {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.border,
           borderTopWidth: 1,
-          paddingBottom: 10,
+          paddingBottom: 60,
           paddingTop: 10,
         },
         tabBarActiveTintColor: Colors.primary,
@@ -81,10 +83,10 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="compete"
         options={{
-          title: "Competir",
+          title: "Retos",
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons
-              name="trophy-outline"
+              name="flag-outline"
               color={color}
               size={size}
             />

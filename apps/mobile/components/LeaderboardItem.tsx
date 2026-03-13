@@ -1,5 +1,6 @@
-import { View, Text, StyleSheet } from 'react-native'
+import { View, Text, Image, StyleSheet } from 'react-native'
 import { Colors } from '../constants/colors'
+import { ProBadge } from './ProBadge'
 
 interface LeaderboardItemProps {
   rank: number
@@ -12,6 +13,7 @@ interface LeaderboardItemProps {
   is_me: boolean
   ghost_mode?: boolean
   level?: number
+  is_pro?: boolean
 }
 
 const RANK_COLORS = ['#FF7A00', '#9A9A9A', '#C8A060']
@@ -21,11 +23,13 @@ export function LeaderboardItem({
   rank,
   username,
   display_name,
+  avatar_url,
   streak_current,
   total_checkins,
   completion_pct,
   is_me,
   ghost_mode,
+  is_pro,
 }: LeaderboardItemProps) {
   const rankColor = rank <= 3 ? RANK_COLORS[rank - 1] : Colors.textMuted
   const rankLabel = rank <= 3 ? RANK_LABELS[rank - 1] : `#${rank}`
@@ -39,19 +43,26 @@ export function LeaderboardItem({
       </View>
 
       {/* Avatar */}
-      <View style={[styles.avatar, is_me && styles.avatarMe]}>
-        <Text style={[styles.avatarText, is_me && styles.avatarTextMe]}>
-          {username[0]?.toUpperCase() ?? '?'}
-        </Text>
-      </View>
+      {avatar_url ? (
+        <Image source={{ uri: avatar_url }} style={[styles.avatar, is_me && styles.avatarMe]} />
+      ) : (
+        <View style={[styles.avatar, is_me && styles.avatarMe]}>
+          <Text style={[styles.avatarText, is_me && styles.avatarTextMe]}>
+            {username[0]?.toUpperCase() ?? '?'}
+          </Text>
+        </View>
+      )}
 
       {/* Info */}
       <View style={styles.info}>
         <View style={styles.nameRow}>
-          <Text style={[styles.name, is_me && styles.nameMe]} numberOfLines={1}>
-            {display_name ?? username}
-            {is_me ? <Text style={styles.youTag}> (tú)</Text> : null}
-          </Text>
+          <View style={styles.nameBadgeWrap}>
+            <Text style={[styles.name, is_me && styles.nameMe]} numberOfLines={1}>
+              {display_name ?? username}
+              {is_me ? <Text style={styles.youTag}> (tú)</Text> : null}
+            </Text>
+            {is_pro && <ProBadge />}
+          </View>
           {!ghost_mode && (
             <Text style={[styles.checkins, { color: rankColor }]}>
               {total_checkins} {total_checkins === 1 ? 'check-in' : 'check-ins'}
@@ -124,7 +135,8 @@ const styles = StyleSheet.create({
   avatarTextMe: { color: '#000' },
   info: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
-  name: { color: Colors.text, fontWeight: '700', fontSize: 15, flex: 1 },
+  nameBadgeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  name: { color: Colors.text, fontWeight: '700', fontSize: 15 },
   nameMe: { color: Colors.primary },
   youTag: { color: Colors.textSecondary, fontWeight: '400', fontSize: 13 },
   checkins: { fontSize: 13, fontWeight: '700' },

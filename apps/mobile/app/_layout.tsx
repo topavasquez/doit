@@ -32,15 +32,15 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen
         name="group/[id]"
-        options={{ title: 'Group', headerBackTitle: 'Back' }}
+        options={{ title: '', headerBackTitle: 'Grupos', headerBackVisible: true }}
       />
       <Stack.Screen
         name="challenge/[id]"
-        options={{ title: 'Challenge', headerBackTitle: 'Back' }}
+        options={{ title: '', headerBackTitle: 'Atrás', headerBackVisible: true }}
       />
       <Stack.Screen
         name="challenge/create"
-        options={{ title: 'New Challenge', headerBackTitle: 'Back', presentation: 'modal' }}
+        options={{ title: 'Nuevo reto', headerBackTitle: 'Atrás', presentation: 'modal' }}
       />
       <Stack.Screen
         name="friends/index"
@@ -53,6 +53,10 @@ function RootLayoutNav() {
       <Stack.Screen
         name="user/[id]"
         options={{ title: 'Perfil', headerBackTitle: 'Atrás' }}
+      />
+      <Stack.Screen
+        name="premium"
+        options={{ title: '', headerBackTitle: 'Atrás', headerBackVisible: true, animation: 'slide_from_bottom' }}
       />
     </Stack>
   )
